@@ -1,0 +1,52 @@
+name: sana-public-demo
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sana_demo
+      POSTGRES_USER: sana_demo
+      POSTGRES_PASSWORD: sana_public_demo_only
+    volumes:
+      - demo-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sana_demo -d sana_demo"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  app:
+    image: sana-quest:public-demo
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://sana_demo:sana_public_demo_only@db:5432/sana_demo?sslmode=disable
+      PORT: "8080"
+      STATIC_DIR: /app/web/dist
+      MEDIA_DIR: /app/data/media
+      SEED_ACCOUNTS: "true"
+      SEED_PASSWORD: "Pass1234!"
+      # The public reviewer instance runs without personal API credentials.
+      OPENAI_API_KEY: ""
+      ELEVENLABS_API_KEY: ""
+    ports:
+      - "127.0.0.1:8084:8080"
+    volumes:
+      - demo-media-data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "--protocol", "http2", "--url", "http://app:8080"]
+    depends_on:
+      app:
+        condition: service_healthy
+volumes:
+  demo-postgres-data:
+  demo-media-data:
