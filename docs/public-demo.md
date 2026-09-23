@@ -47,4 +47,4 @@ docker compose -f compose.demo.yaml down
 
 Команда сохраняет данные в volumes. Повторный запуск восстанавливает данные, но может изменить публичный адрес. Команда с `-v` удалит данные демонстрационного экземпляра.
 
-Для постоянного размещения потребуется сервер с Docker и постоянный домен либо настроенный именованный туннель. [Документация Cloudflare Quick Tunnels](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/).
+Для размещения независимо от ноутбука потребуется внешний сервер с Docker и постоянным хранилищем. HTTPS-доступ к нему можно настроить через домен и обратный прокси либо именованный туннель. Сам по себе именованный туннель не переносит приложение в облако: сервер приложения и база должны продолжать работать. [Документация Cloudflare Quick Tunnels](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/).
