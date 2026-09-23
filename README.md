@@ -170,7 +170,7 @@ ELEVENLABS_VOICE_ID=JBFqnCBsd6RMkjVDRZzb
 docker compose logs --since=15m app
 ```
 
-Наличие ключа в `/api/bootstrap` (`capabilities.ai`) означает только настройку, а не успешное обращение к провайдеру. Проверка реального вызова 23.09.2026 описана в [verification](docs/verification.md).
+Наличие ключа в `/api/bootstrap` (`capabilities.ai`) означает только настройку, а не успешное обращение к провайдеру. Контрольный вызов на `localhost:8080` 23.09.2026 вернул модель `gpt-4o-mini-2024-07-18`, 333 входных и 133 выходных токена, три вопроса. Подробности и ID запроса — в [verification](docs/verification.md).
 
 Для денежных расходов используйте [Usage → Costs](https://platform.openai.com/usage) с нужной организацией, проектом и периодом. Официальная документация рекомендует Costs для сверки с биллингом; статистика запросов и расходов может различаться по способу учёта. По одному `$0.00` на странице ключей нельзя доказать отсутствие вызовов. Мы не имеем доступа к вашему биллингу и не выдаём локальный счётчик токенов за сумму списания. [Источник OpenAI](https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage).
 

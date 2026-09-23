@@ -1,6 +1,7 @@
 import type { Lang } from "./types";
 export const additions: Record<Lang, Record<string, string>> = {
   ru: {
+    level: "Уровень",
     student: "Студент",
     attachments: "Файлы и материалы",
     languageReview: "Проверка языка",
@@ -116,6 +117,7 @@ export const additions: Record<Lang, Record<string, string>> = {
       "Пароль: от 8 символов, не более 72 байт",
   },
   kk: {
+    level: "Деңгей",
     attachments: "Файлдар",
     languageReview: "Тілді тексеру",
     register: "Аккаунт ашу",
@@ -230,6 +232,7 @@ export const additions: Record<Lang, Record<string, string>> = {
       "Құпиясөз кемінде 8 таңба, 72 байттан аспауы тиіс",
   },
   en: {
+    level: "Level",
     attachments: "Attachments",
     languageReview: "Language review",
     register: "Create account",
