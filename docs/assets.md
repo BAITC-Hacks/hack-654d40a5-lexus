@@ -16,7 +16,7 @@ Use case: stylized-concept. Asset type: wide pixel-art illustration banner for S
 - Lucide React — иконки, ISC: https://github.com/lucide-icons/lucide/blob/main/LICENSE
 - React — MIT; Vite — MIT; pgx — MIT. Лицензии зависимостей сохраняются в npm/Go packages.
 - Emoji — системный набор браузера, отдельные чужие sprite sheets не загружались.
-- `renderer/src/vendor/DotFieldBg.tsx` и `types.ts` скопированы из [anything2explainer](https://github.com/Vincentwei1021/anything2explainer). Copyright (c) 2026 Vincent Wei. Required Notice и PolyForm Noncommercial находятся в `renderer/ANYTHING2EXPLAINER-LICENSE`.
+- `renderer/src/vendor/DotFieldBg.tsx` скопирован без изменения; `types.ts` сокращён до используемого BgSpec. Оба происходят из [anything2explainer](https://github.com/Vincentwei1021/anything2explainer). Copyright (c) 2026 Vincent Wei. Required Notice и PolyForm Noncommercial находятся в `renderer/ANYTHING2EXPLAINER-LICENSE`.
 - Остальные сцены адаптера созданы для платформы. Video workflow следует подтверждению сценария/языка/голоса, pilot и полному рендеру из skill; runtime получает JSON, не пользовательский программный код.
 - Remotion: https://www.remotion.dev/license. Условия toolkit и Remotion не подменяются лицензиями React/TypeScript.
 - Шрифт видео: DejaVu Sans из системного пакета контейнера; поддерживает кириллицу и казахские буквы. Интерфейс использует системные шрифты, без внешних font CDN.

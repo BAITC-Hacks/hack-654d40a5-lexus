@@ -118,6 +118,7 @@ flowchart LR
 go test -race ./server
 npm --prefix web ci
 npm --prefix web run build
+npm --prefix renderer ci && npm --prefix renderer run typecheck
 SANA_URL=http://localhost:8080 python3 scripts/smoke.py
 ```
 

@@ -9,7 +9,7 @@ WORKDIR /app/renderer
 COPY renderer/package*.json ./
 RUN npm ci
 COPY renderer/ ./
-RUN npm run bundle
+RUN npm run typecheck && npm run bundle
 FROM golang:1.25-bookworm AS go
 WORKDIR /src
 COPY go.mod go.sum ./
