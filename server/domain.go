@@ -13,34 +13,45 @@ import (
 
 type Fields map[string]string
 type User struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Role   string `json:"role"`
-	TeamID string `json:"teamId"`
-	Plan   string `json:"plan"`
+	Email        string `json:"email"`
+	Organization string `json:"organization"`
+	Description  string `json:"description"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Role         string `json:"role"`
+	TeamID       string `json:"teamId"`
+	Plan         string `json:"plan"`
 }
 type Version struct {
-	Number   int               `json:"number"`
-	Fields   Fields            `json:"fields"`
-	Approved map[string]string `json:"approved"`
-	Score    int               `json:"score"`
-	At       string            `json:"at"`
-	Note     string            `json:"note"`
+	AttachmentIDs   []string          `json:"attachmentIds"`
+	LanguagePenalty int               `json:"languagePenalty"`
+	CoverID         string            `json:"coverId"`
+	Number          int               `json:"number"`
+	Fields          Fields            `json:"fields"`
+	Approved        map[string]string `json:"approved"`
+	Score           int               `json:"score"`
+	At              string            `json:"at"`
+	Note            string            `json:"note"`
 }
 type Challenge struct {
-	ID        string            `json:"id"`
-	OwnerID   string            `json:"ownerId"`
-	Company   string            `json:"company"`
-	Category  string            `json:"category"`
-	Locale    string            `json:"locale"`
-	Fields    Fields            `json:"fields"`
-	Approved  map[string]string `json:"approved"`
-	Revision  int               `json:"revision"`
-	Versions  []Version         `json:"versions"`
-	Score     int               `json:"score"`
-	Published bool              `json:"published"`
-	CreatedAt string            `json:"createdAt"`
-	Activity  []Activity        `json:"activity"`
+	AttachmentIDs        []string          `json:"attachmentIds"`
+	LanguageAudit        LanguageAudit     `json:"languageAudit"`
+	LanguageAcknowledged string            `json:"languageAcknowledged"`
+	LanguagePenalty      int               `json:"languagePenalty"`
+	CoverID              string            `json:"coverId"`
+	ID                   string            `json:"id"`
+	OwnerID              string            `json:"ownerId"`
+	Company              string            `json:"company"`
+	Category             string            `json:"category"`
+	Locale               string            `json:"locale"`
+	Fields               Fields            `json:"fields"`
+	Approved             map[string]string `json:"approved"`
+	Revision             int               `json:"revision"`
+	Versions             []Version         `json:"versions"`
+	Score                int               `json:"score"`
+	Published            bool              `json:"published"`
+	CreatedAt            string            `json:"createdAt"`
+	Activity             []Activity        `json:"activity"`
 }
 type Activity struct {
 	Kind   string `json:"kind"`
@@ -68,18 +79,21 @@ type Review struct {
 	At          string `json:"at"`
 }
 type Proposal struct {
-	ID          string `json:"id"`
-	ChallengeID string `json:"challengeId"`
-	Version     int    `json:"version"`
-	TeamID      string `json:"teamId"`
-	Idea        string `json:"idea"`
-	Plan        string `json:"plan"`
-	Deadline    string `json:"deadline"`
-	Link        string `json:"link"`
-	Status      string `json:"status"`
-	Submission  string `json:"submission"`
-	Milestone   bool   `json:"milestone"`
-	At          string `json:"at"`
+	AttachmentIDs           []string `json:"attachmentIds"`
+	SubmissionAttachmentIDs []string `json:"submissionAttachmentIds"`
+	LanguageWarning         bool     `json:"languageWarning"`
+	ID                      string   `json:"id"`
+	ChallengeID             string   `json:"challengeId"`
+	Version                 int      `json:"version"`
+	TeamID                  string   `json:"teamId"`
+	Idea                    string   `json:"idea"`
+	Plan                    string   `json:"plan"`
+	Deadline                string   `json:"deadline"`
+	Link                    string   `json:"link"`
+	Status                  string   `json:"status"`
+	Submission              string   `json:"submission"`
+	Milestone               bool     `json:"milestone"`
+	At                      string   `json:"at"`
 }
 type Notification struct {
 	ID          string `json:"id"`
@@ -91,6 +105,10 @@ type Notification struct {
 	At          string `json:"at"`
 }
 type State struct {
+	Attachments   []Attachment   `json:"attachments"`
+	Covers        []Cover        `json:"covers"`
+	Accounts      []Account      `json:"accounts"`
+	AdminEvents   []AdminEvent   `json:"adminEvents"`
 	Changes       []ChangeAdvice `json:"changes"`
 	Users         []User         `json:"users"`
 	Challenges    []Challenge    `json:"challenges"`
@@ -210,9 +228,13 @@ func publish(s *State, c *Challenge, note string) error {
 	if err := validateFields(c.Fields); err != nil {
 		return err
 	}
-	c.Score = score(c.Fields, c.Approved)
+	syncLanguage(c, s, false)
+	if c.LanguageAudit.Warning && c.LanguageAcknowledged != languageFingerprint(c) {
+		return languageError()
+	}
+	c.Score = challengeScore(c)
 	n := len(c.Versions) + 1
-	c.Versions = append(c.Versions, Version{n, copyFields(c.Fields), copyApproved(c.Approved), c.Score, now(), note})
+	c.Versions = append(c.Versions, Version{AttachmentIDs: append([]string{}, c.AttachmentIDs...), LanguagePenalty: c.LanguagePenalty, CoverID: c.CoverID, Number: n, Fields: copyFields(c.Fields), Approved: copyApproved(c.Approved), Score: c.Score, At: now(), Note: note})
 	c.Published = true
 	c.Revision++
 	c.Activity = append(c.Activity, Activity{"published", now(), fmt.Sprintf("v%d · %d/100", n, c.Score)})

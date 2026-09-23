@@ -1,13 +1,36 @@
+import { errorText, responseJSON } from "./http-errors";
 export type Lang = "ru" | "kk" | "en";
 export type Fields = Record<string, string>;
 export type User = {
   id: string;
   name: string;
-  role: "business" | "student";
+  role: "business" | "student" | "admin" | "pending";
+  email: string;
+  organization?: string;
+  description?: string;
   teamId: string;
   plan: string;
 };
+export type LanguageAudit = {
+  warning: boolean;
+  expected: string;
+  detected: string;
+  reason?: string;
+  method?: string;
+};
+export type Attachment = {
+  id: string;
+  name: string;
+  size: number;
+  contentType: string;
+  at: string;
+  audit: LanguageAudit;
+  auditScope: string;
+};
 export type Version = {
+  attachmentIds?: string[];
+  languagePenalty?: number;
+  coverId?: string;
   number: number;
   fields: Fields;
   approved: Fields;
@@ -16,6 +39,11 @@ export type Version = {
   note: string;
 };
 export type Challenge = {
+  attachmentIds?: string[];
+  languageAudit?: LanguageAudit;
+  languagePenalty?: number;
+  languageAcknowledged?: string;
+  coverId?: string;
   id: string;
   ownerId: string;
   company: string;
@@ -51,6 +79,9 @@ export type Team = {
   reviews: Review[];
 };
 export type Proposal = {
+  attachmentIds?: string[];
+  submissionAttachmentIds?: string[];
+  languageWarning?: boolean;
   id: string;
   challengeId: string;
   version: number;
@@ -85,15 +116,15 @@ export type Media = {
   at: string;
 };
 export type Data = {
+  attachments: Attachment[];
   user: User | null;
-  profiles: User[];
   challenges: Challenge[];
   teams: Team[];
   proposals: Proposal[];
   notifications: Notice[];
   media: Media[];
   criteria: { id: string; weight: number; fields: string[] }[];
-  capabilities: { ai: boolean; speech: boolean; demo: boolean };
+  capabilities: { ai: boolean; speech: boolean; images: boolean };
 };
 export const fieldKeys = [
   "title",
@@ -112,8 +143,6 @@ export async function api<T = any>(path: string, body?: unknown): Promise<T> {
     method: body === undefined ? "GET" : "POST",
     headers: body === undefined ? {} : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const d = await r.json();
-  if (!r.ok) throw new Error(d.error || "Request failed");
-  return d;
+  }).catch((error: unknown) => { throw new Error(errorText(error)); });
+  return responseJSON<T>(r);
 }

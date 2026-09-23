@@ -1,5 +1,6 @@
 const { chromium } = require("../web/node_modules/playwright");
 const assert = require("node:assert/strict");
+let auditPage;
 (async () => {
   const browser = await chromium.launch(
     process.env.CHROME_EXECUTABLE
@@ -9,18 +10,31 @@ const assert = require("node:assert/strict");
   const page = await browser.newPage({
     viewport: { width: 1440, height: 1100 },
   });
+  auditPage = page;
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(process.env.SANA_URL || "http://localhost:8080");
+  page.setDefaultTimeout(20000);
   async function login(name) {
+    const hash = await page.evaluate(() => location.hash);
     await page.locator(".profile-button").click();
+    const logout = page.getByRole("button", { name: "Выйти", exact: true });
+    if (await logout.isVisible()) {
+      await logout.click();
+      await page.getByRole("dialog").waitFor({ state: "hidden" });
+      await page.locator(".profile-button").click();
+    }
     await page
-      .getByRole("dialog")
-      .getByRole("button", { name: new RegExp(name) })
-      .click();
-    await page
-      .getByRole("dialog", { name: "Выберите свою роль", exact: true })
-      .waitFor({ state: "hidden" });
+      .getByLabel("Электронная почта", { exact: true })
+      .fill(
+        name === "Alem Coffee" ? "business@alemhack.ai" : "student@alemhack.ai",
+      );
+    await page.getByLabel("Пароль", { exact: true }).fill("Pass1234!");
+    await page.getByRole("button", { name: "Войти", exact: true }).click();
+    await page.getByRole("dialog").waitFor({ state: "hidden" });
+    await page.evaluate((h) => {
+      location.hash = h;
+    }, hash);
   }
   await login("Alem Coffee");
   await page
@@ -39,8 +53,14 @@ const assert = require("node:assert/strict");
     await page
       .getByRole("button", { name: "Помочь сформулировать", exact: true })
       .click();
-  await page.locator(".question-list>div").nth(2).waitFor();
-  await page.getByRole("button", { name: "Продолжить", exact: true }).click();
+  await page.locator(".current-question").waitFor();
+  while (await page.locator(".current-question").isVisible())
+    await page
+      .getByRole("button", { name: "Пока не знаю", exact: true })
+      .click();
+  await page
+    .getByRole("button", { name: "Собрать карточку", exact: true })
+    .click();
   await page
     .getByLabel("Название задачи", { exact: true })
     .fill("UI QA: прогноз для кофейни");
@@ -145,6 +165,8 @@ const assert = require("node:assert/strict");
   await page
     .getByRole("button", { name: "Опубликовать изменения", exact: true })
     .click();
+  await page.waitForURL((url) => url.hash === questHash);
+  await page.locator(".detail-heading").waitFor();
   await page
     .getByRole("heading", { name: "UI QA: прогноз для кофейни", exact: true })
     .waitFor();
@@ -163,10 +185,18 @@ const assert = require("node:assert/strict");
   await page.waitForTimeout(200);
   await login("Alem Coffee");
   await page
+    .locator(".detail-tabs")
+    .getByRole("button", { name: /Отклики/ })
+    .click();
+  await page
     .getByRole("button", { name: "Выбрать команду", exact: true })
     .click();
   await page.getByRole("button", { name: "Подтвердить этап · +50 XP" }).click();
   await login("Pixel Pioneers");
+  await page
+    .locator(".detail-tabs")
+    .getByRole("button", { name: /Отклики/ })
+    .click();
   await page
     .getByRole("button", { name: "Отправить результат", exact: true })
     .click();
@@ -183,6 +213,10 @@ const assert = require("node:assert/strict");
   await page.getByRole("dialog").waitFor({ state: "hidden" });
   await login("Alem Coffee");
   await page
+    .locator(".detail-tabs")
+    .getByRole("button", { name: /Отклики/ })
+    .click();
+  await page
     .getByRole("button", { name: "Принять результат и оценить" })
     .click();
   await page
@@ -193,8 +227,8 @@ const assert = require("node:assert/strict");
     .click();
   await page.getByRole("dialog").waitFor({ state: "hidden" });
   await page.locator(".proposal-card .badge.completed").waitFor();
-  for (const lang of ["kk", "en", "ru"]) {
-    await page.locator(".lang-select select").selectOption(lang);
+  {
+    const lang = "ru";
     assert.equal(await page.locator("html").getAttribute("lang"), lang);
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 950 });
@@ -216,7 +250,26 @@ const assert = require("node:assert/strict");
     questHash,
   });
   await browser.close();
-})().catch((e) => {
+})().catch(async (e) => {
+  if (auditPage) {
+    await auditPage.screenshot({
+      path: "/tmp/sana-browser-flow-failure.png",
+      fullPage: true,
+    });
+    console.error(
+      await auditPage
+        .evaluate(async () => ({
+          hash: location.hash,
+          data: await (await fetch("/api/bootstrap")).json(),
+        }))
+        .then((x) => ({
+          hash: x.hash,
+          user: x.data.user,
+          notices: x.data.notifications,
+        }))
+        .catch(() => "snapshot unavailable"),
+    );
+  }
   console.error(e);
   process.exit(1);
 });

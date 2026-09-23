@@ -5,7 +5,7 @@ BASE=os.environ.get('SANA_URL','http://localhost:8081')
 class Client:
     def __init__(self,profile=None):
         self.opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-        if profile:self.call('/session',{'userId':profile})
+        if profile:self.call('/auth/login',{'email':{'b1':'business@alemhack.ai','b2':'pro@alemhack.ai','ut1':'student@alemhack.ai','admin':'admin@alemhack.ai'}[profile],'password':'Pass1234!'})
     def call(self,path,body=None,status=200):
         req=urllib.request.Request(BASE+'/api'+path,data=json.dumps(body).encode() if body is not None else None,headers={'Content-Type':'application/json'})
         try:r=self.opener.open(req,timeout=120);code=r.status;value=json.load(r)
@@ -45,7 +45,7 @@ team.call('/proposals/'+p['id'],{'action':'submit','submission':'Рабочий 
 b.call('/proposals/'+p['id'],{'action':'review','stars':5,'text':'Понятный прототип и полезная документация.'})
 b.call('/proposals/'+p['id'],{'action':'review','stars':5,'text':'Повторный отзыв недопустим.'},403)
 t=next(t for t in b.call('/bootstrap')['teams'] if t['id']=='t1');assert t['xp']==initial+200 and any(r['proposalId']==p['id'] for r in t['reviews'])
-b.call('/subscription',{'plan':'pro'});assert b.call('/bootstrap')['user']['plan']=='pro'
+Client('admin').call('/admin/users',{'userId':'b1','role':'business','plan':'pro'});assert b.call('/bootstrap')['user']['plan']=='pro'
 assert next(x for x in b.call('/bootstrap')['challenges'] if x['id']==c['id'])['score']==100
 team.call('/media',{'challengeId':c['id'],'version':2,'script':'Not allowed to generate customer media','locale':'en','duration':30,'voice':'none','approved':True,'previewApproved':True},403)
 print(json.dumps({'result':'PASS','checks':22,'challengeId':c['id'],'proposalId':p['id'],'finalScore':100,'teamXPDelta':200},ensure_ascii=False))

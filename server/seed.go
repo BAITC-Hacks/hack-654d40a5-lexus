@@ -3,14 +3,14 @@ package main
 import "fmt"
 
 func seed() State {
-	s := State{Users: []User{{"b1", "Alem Coffee", "business", "", "free"}, {"b2", "Green Step", "business", "", "pro"}}, Challenges: []Challenge{}, Teams: []Team{}, Proposals: []Proposal{}, Notifications: []Notification{}, Media: []Media{}}
+	s := State{Users: []User{{ID: "b1", Name: "Alem Coffee", Role: "business", Plan: "free"}, {ID: "b2", Name: "Green Step", Role: "business", Plan: "pro"}}, Challenges: []Challenge{}, Teams: []Team{}, Proposals: []Proposal{}, Notifications: []Notification{}, Media: []Media{}}
 	names := []string{"Pixel Pioneers", "Qadam Lab", "Nomad Code", "Data Nomads", "Alem Makers"}
 	descs := []string{"Превращаем сложные процессы в простые цифровые продукты. Исследуем, проектируем и пишем код.", "Создаём доступные сервисы для города и образования. Любим задачи с реальным социальным эффектом.", "Веб-приложения и автоматизация для малого бизнеса. От первого интервью до рабочего прототипа.", "Находим полезные закономерности в данных. Прогнозирование, аналитика и понятные дашборды.", "Соединяем дизайн, AI и инженерный подход. Быстро проверяем идеи вместе с пользователями."}
 	skills := [][]string{{"React", "Go", "UI/UX"}, {"TypeScript", "Accessibility", "Figma"}, {"Python", "React", "PostgreSQL"}, {"Python", "Data Science", "SQL"}, {"AI", "Go", "Design"}}
 	for i, n := range names {
 		tid := fmt.Sprintf("t%d", i+1)
 		s.Teams = append(s.Teams, Team{ID: tid, Name: n, Description: descs[i], University: []string{"KBTU · Алматы", "SDU · Каскелен", "Astana IT University", "КазНУ · Алматы", "Satbayev University"}[i], Skills: skills[i], Members: 3 + i%3, Color: []string{"mint", "peach", "lavender", "blue", "yellow"}[i], Emoji: []string{"🦊", "🌱", "🚀", "🦉", "⚡"}[i], XP: 0, Reviews: []Review{}})
-		s.Users = append(s.Users, User{"u" + tid, n, "student", tid, "free"})
+		s.Users = append(s.Users, User{ID: "u" + tid, Name: n, Role: "student", TeamID: tid, Plan: "free"})
 	}
 	titles := []string{"Меньше списаний. Больше хорошего кофе.", "Карта доступного города", "Умный помощник для приёмной комиссии", "Прогноз спроса для локальной пекарни", "Вторая жизнь университетских вещей"}
 	needs := []string{"Хотим понять, сколько выпечки готовить каждый день, чтобы сократить списания в кофейне.", "Нужна карта мест с доступным входом для людей на колясках в Алматы.", "Помочь абитуриентам быстро находить ответы о поступлении на трёх языках.", "Прогнозировать спрос по дням недели для небольшой пекарни.", "Помочь студентам обмениваться учебниками и вещами внутри университета."}

@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-test("catalog, languages, keyboard navigation and responsive layout", async ({
+test("Russian-only UI, keyboard navigation and responsive layout", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -12,9 +12,8 @@ test("catalog, languages, keyboard navigation and responsive layout", async ({
   await page.keyboard.press("Enter");
   await expect(page.locator("#main")).toBeFocused();
   await expect(page.locator(".quest-card").first()).toBeVisible();
-  for (const lang of ["ru", "kk", "en"]) {
-    await page.locator(".lang-select select").selectOption(lang);
-    await expect(page.locator("html")).toHaveAttribute("lang", lang);
+  await expect(page.locator("html")).toHaveAttribute("lang", "ru");
+  {
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 950 });
       expect(
@@ -34,7 +33,9 @@ test("core pages expose labels and sufficient text contrast", async ({
   page,
   context,
 }) => {
-  await context.request.post("/api/session", { data: { userId: "b1" } });
+  await context.request.post("/api/auth/login", {
+    data: { email: "business@alemhack.ai", password: "Pass1234!" },
+  });
   for (const route of ["teams", "plans", "quest/q1", "edit/q1", "workspace"]) {
     await page.goto("/#" + route);
     await page.waitForFunction(

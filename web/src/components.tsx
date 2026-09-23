@@ -1,3 +1,6 @@
+import { responseJSON } from "./http-errors";
+import { AttachmentList } from "./Attachments";
+import { LanguageWarning, useLanguageAudit } from "./Language";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   X,
@@ -10,7 +13,7 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { api, type Lang, type Challenge } from "./types";
+import { api, type Lang, type Challenge, type Data } from "./types";
 import type { T } from "./i18n";
 export function Modal({
   title,
@@ -120,6 +123,7 @@ export function AudioInput({
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const [transcript, setTranscript] = useState<string | null>(null);
+  const transcriptLanguage = useLanguageAudit(transcript || "", lang);
   const recorder = useRef<MediaRecorder | null>(null);
   const stream = useRef<MediaStream | null>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -141,8 +145,7 @@ export function AudioInput({
       f.append("audio", file, name);
       f.append("locale", lang);
       const r = await fetch("/api/transcribe", { method: "POST", body: f });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error);
+      const d = await responseJSON(r);
       setTranscript(d.text);
     } catch (e) {
       onError(String(e));
@@ -238,8 +241,14 @@ export function AudioInput({
               onChange={(e) => setTranscript(e.target.value)}
             />
           </label>
+          <LanguageWarning
+            audit={transcriptLanguage.audit}
+            accepted={transcriptLanguage.accepted}
+            onAccept={transcriptLanguage.setAccepted}
+          />
           <button
             className="primary"
+            disabled={transcriptLanguage.blocked || transcriptLanguage.checking}
             onClick={() => {
               onText(transcript);
               setTranscript(null);
@@ -298,8 +307,7 @@ export function Listen({
           body: JSON.stringify({ text: text.slice(0, 3900), locale: lang }),
         });
         if (!r.ok) {
-          const d = await r.json();
-          throw new Error(d.error);
+          await responseJSON(r);
         }
         if (obj.current) URL.revokeObjectURL(obj.current);
         obj.current = URL.createObjectURL(await r.blob());
@@ -343,7 +351,15 @@ export function Listen({
     </button>
   );
 }
-export function Diff({ challenge, t }: { challenge: Challenge; t: T }) {
+export function Diff({
+  challenge,
+  t,
+  data,
+}: {
+  challenge: Challenge;
+  t: T;
+  data?: Data;
+}) {
   const [a, setA] = useState(Math.max(1, challenge.versions.length - 1));
   const [b, setB] = useState(challenge.versions.length);
   const va = challenge.versions.find((v) => v.number === a),
@@ -386,6 +402,61 @@ export function Diff({ challenge, t }: { challenge: Challenge; t: T }) {
           </div>
         );
       })}
+      {data &&
+        JSON.stringify(va?.attachmentIds || []) !==
+          JSON.stringify(vb?.attachmentIds || []) && (
+          <div className="diff-field">
+            <h4>Файлы и материалы</h4>
+            <div className="diff-grid">
+              <div>
+                <AttachmentList ids={va?.attachmentIds} data={data} />
+                {!va?.attachmentIds?.length && <p>Без вложений</p>}
+              </div>
+              <div>
+                <AttachmentList ids={vb?.attachmentIds} data={data} />
+                {!vb?.attachmentIds?.length && <p>Без вложений</p>}
+              </div>
+            </div>
+          </div>
+        )}
+      {va?.coverId !== vb?.coverId && (
+        <div className="diff-field">
+          <h4>Обложка</h4>
+          <div className="diff-grid">
+            <div>
+              {va?.coverId ? (
+                <img
+                  className="brief-cover"
+                  src={"/covers/" + va.coverId + ".jpg"}
+                  alt="Предыдущая обложка"
+                />
+              ) : (
+                <p>Без обложки</p>
+              )}
+            </div>
+            <div>
+              {vb?.coverId ? (
+                <img
+                  className="brief-cover"
+                  src={"/covers/" + vb.coverId + ".jpg"}
+                  alt="Новая обложка"
+                />
+              ) : (
+                <p>Без обложки</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {(va?.languagePenalty || 0) !== (vb?.languagePenalty || 0) && (
+        <div className="diff-field">
+          <h4>Поправка за язык материалов</h4>
+          <div className="diff-grid">
+            <p>−{va?.languagePenalty || 0}</p>
+            <p>−{vb?.languagePenalty || 0}</p>
+          </div>
+        </div>
+      )}
       {a === b && <p className="muted">{t("unchanged")}</p>}
     </>
   );

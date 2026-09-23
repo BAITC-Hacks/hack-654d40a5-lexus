@@ -1,3 +1,5 @@
+import { AttachmentEditor, AttachmentList } from "./Attachments";
+import { LanguageWarning, useLanguageAudit, languageFor } from "./Language";
 import { useState } from "react";
 import {
   ArrowLeft,
@@ -48,6 +50,19 @@ export function QuestDetail({
     deadline: "",
     link: "",
   });
+  const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
+  const proposalLanguage = useLanguageAudit(
+    proposal ? form.idea + "\n" + form.plan : "",
+    c.locale,
+  );
+  const fileAudit = data.attachments?.find(
+    (f) => attachmentIds.includes(f.id) && languageFor(f.audit, "ru").warning,
+  )?.audit;
+  const proposalAudit = proposalLanguage.audit?.warning
+    ? proposalLanguage.audit
+    : fileAudit
+      ? languageFor(fileAudit, "ru")
+      : undefined;
   const [busy, setBusy] = useState(false);
   const own = c.ownerId === data.user?.id;
   const latest = c.versions.at(-1);
@@ -124,6 +139,23 @@ export function QuestDetail({
           </div>
           {tab === "brief" && (
             <div className="detail-paper">
+              {(latest?.coverId || (!latest && c.coverId)) && (
+                <img
+                  className="brief-cover"
+                  src={"/covers/" + (latest?.coverId || c.coverId) + ".jpg"}
+                  alt={t("cover")}
+                />
+              )}
+              <AttachmentList
+                ids={latest?.attachmentIds || c.attachmentIds}
+                data={data}
+              />
+              {!!latest?.languagePenalty && (
+                <p className="language-public-note">
+                  Язык материала отличается от языка задачи. Заказчик подтвердил
+                  публикацию. Поправка к готовности: −{latest.languagePenalty}.
+                </p>
+              )}
               {score < 40 && (
                 <div className="info-note">
                   <Flag size={20} />
@@ -173,6 +205,13 @@ export function QuestDetail({
           )}{" "}
           {tab === "activity" && (
             <div className="detail-paper">
+              {(latest?.coverId || (!latest && c.coverId)) && (
+                <img
+                  className="brief-cover"
+                  src={"/covers/" + (latest?.coverId || c.coverId) + ".jpg"}
+                  alt={t("cover")}
+                />
+              )}
               <div className="row between">
                 <h2>{t("history")}</h2>
                 {c.versions.length > 0 && (
@@ -283,7 +322,7 @@ export function QuestDetail({
       </div>
       {history && (
         <Modal wide title={t("history")} onClose={() => setHistory(false)}>
-          <Diff challenge={c} t={t} />
+          <Diff challenge={c} t={t} data={data} />
         </Modal>
       )}
       {proposal && (
@@ -298,6 +337,8 @@ export function QuestDetail({
               try {
                 await api("/proposals", {
                   ...form,
+                  attachmentIds,
+                  acceptLanguageMismatch: proposalLanguage.accepted,
                   challengeId: c.id,
                   version: latest?.number,
                 });
@@ -340,7 +381,29 @@ export function QuestDetail({
                 )}
               </label>
             ))}
-            <button className="primary" disabled={busy}>
+            <AttachmentEditor
+              ids={attachmentIds}
+              data={data}
+              locale={c.locale}
+              onChange={(ids) => {
+                setAttachmentIds(ids);
+                proposalLanguage.setAccepted(false);
+              }}
+              refresh={refresh}
+            />
+            <LanguageWarning
+              audit={proposalAudit}
+              accepted={proposalLanguage.accepted}
+              onAccept={proposalLanguage.setAccepted}
+            />
+            <button
+              className="primary"
+              disabled={
+                busy ||
+                proposalLanguage.checking ||
+                (!!proposalAudit?.warning && !proposalLanguage.accepted)
+              }
+            >
               <Send size={16} />
               {t("send")}
             </button>
@@ -362,6 +425,18 @@ export function ProposalCard({
 }: Common & { p: Proposal }) {
   const [modal, setModal] = useState("");
   const [text, setText] = useState("");
+  const [attachmentIds, setAttachmentIds] = useState<string[]>(
+    p.submissionAttachmentIds || [],
+  );
+  const submissionLanguage = useLanguageAudit(modal === "submit" ? text : "");
+  const fileAudit = data.attachments?.find(
+    (f) => attachmentIds.includes(f.id) && languageFor(f.audit, "ru").warning,
+  )?.audit;
+  const submissionAudit = submissionLanguage.audit?.warning
+    ? submissionLanguage.audit
+    : fileAudit
+      ? languageFor(fileAudit, "ru")
+      : undefined;
   const [stars, setStars] = useState(5);
   const [busy, setBusy] = useState(false);
   const c = data.challenges.find((c) => c.id === p.challengeId);
@@ -377,6 +452,8 @@ export function ProposalCard({
         submission: text,
         text,
         stars,
+        attachmentIds,
+        acceptLanguageMismatch: submissionLanguage.accepted,
       });
       await refresh();
       setModal("");
@@ -412,6 +489,13 @@ export function ProposalCard({
       <p>{p.idea}</p>
       <h4>{t("offerPlan")}</h4>
       <p className="preserve">{p.plan}</p>
+      <AttachmentList ids={p.attachmentIds} data={data} />
+      {p.languageWarning && (
+        <p className="language-public-note">
+          Автор подтвердил материал на другом языке. При необходимости уточните
+          содержание.
+        </p>
+      )}
       {p.link && (
         <a href={p.link} target="_blank" rel="noreferrer" className="text-btn">
           {t("link")}
@@ -422,6 +506,7 @@ export function ProposalCard({
         <div className="submission-box">
           <strong>{t("result")}</strong>
           <p className="preserve">{p.submission}</p>
+          <AttachmentList ids={p.submissionAttachmentIds} data={data} />
         </div>
       )}
       <div className="proposal-actions">
@@ -541,10 +626,33 @@ export function ProposalCard({
               onText={(s) => setText((v) => v + " " + s)}
             />
           )}
+          {modal === "submit" && (
+            <>
+              <AttachmentEditor
+                ids={attachmentIds}
+                data={data}
+                onChange={(ids) => {
+                  setAttachmentIds(ids);
+                  submissionLanguage.setAccepted(false);
+                }}
+                refresh={refresh}
+              />
+              <LanguageWarning
+                audit={submissionAudit}
+                accepted={submissionLanguage.accepted}
+                onAccept={submissionLanguage.setAccepted}
+              />
+            </>
+          )}
           <button
             className="primary"
             disabled={
-              busy || text.trim().length < (modal === "review" ? 5 : 10)
+              busy ||
+              (modal === "submit" &&
+                (submissionLanguage.checking ||
+                  (!!submissionAudit?.warning &&
+                    !submissionLanguage.accepted))) ||
+              text.trim().length < (modal === "review" ? 5 : 10)
             }
             onClick={() => act(modal)}
           >

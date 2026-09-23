@@ -1,3 +1,4 @@
+import { LanguageWarning, useLanguageAudit } from "./Language";
 import { useState } from "react";
 import {
   Film,
@@ -25,7 +26,8 @@ export function MediaStudio({
       .filter(Boolean)
       .join("\n\n"),
   );
-  const [locale, setLocale] = useState<Lang>(c.locale);
+  const locale: Lang = "ru";
+  const scriptLanguage = useLanguageAudit(script, "ru");
   const [duration, setDuration] = useState(30);
   const [voice, setVoice] = useState("none");
   const [approved, setApproved] = useState(false);
@@ -49,20 +51,9 @@ export function MediaStudio({
         (data.user?.plan === "pro" ? (
           <>
             <div className="row">
-              <label>
-                {t("contentLanguage")}
-                <select
-                  value={locale}
-                  onChange={(e) => {
-                    setLocale(e.target.value as Lang);
-                    setApproved(false);
-                  }}
-                >
-                  <option value="ru">Русский</option>
-                  <option value="kk">Қазақша</option>
-                  <option value="en">English</option>
-                </select>
-              </label>
+              <div className="language-note">
+                Видео и озвучка: <strong>Русский</strong>
+              </div>
               <label>
                 {t("duration")}
                 <select
@@ -116,6 +107,11 @@ export function MediaStudio({
               {t("pilotHint")} {t("videoVersion")} · v{c.versions.length}.{" "}
               {voice === "ai" && t("aiVoice")}
             </p>
+            <LanguageWarning
+              audit={scriptLanguage.audit}
+              accepted={scriptLanguage.accepted}
+              onAccept={scriptLanguage.setAccepted}
+            />
             <label className="consent">
               <input
                 type="checkbox"
@@ -126,7 +122,12 @@ export function MediaStudio({
             </label>
             <button
               className="primary"
-              disabled={!approved || script.trim().length < 20}
+              disabled={
+                !approved ||
+                script.trim().length < 20 ||
+                scriptLanguage.blocked ||
+                scriptLanguage.checking
+              }
               onClick={() => {
                 setFinal(false);
                 setPreview(true);
@@ -140,10 +141,10 @@ export function MediaStudio({
           <div className="upgrade-box">
             <LockKeyhole size={30} />
             <h3>{t("videoPro")}</h3>
-            <p>{t("demoPayment")}</p>
+            <p>{t("activationNote")}</p>
             <button className="primary" onClick={() => go("plans")}>
               <Sparkles size={16} />
-              {t("activate")}
+              {t("contactAdmin")}
             </button>
           </div>
         ))}
@@ -263,7 +264,7 @@ export function MediaStudio({
               .slice(0, 6)
               .map((s, i) => (
                 <div key={i}>
-                  <span>SCENE {String(i + 1).padStart(2, "0")}</span>
+                  <span>СЦЕНА {String(i + 1).padStart(2, "0")}</span>
                   <h3>
                     {i === 0
                       ? c.fields.title

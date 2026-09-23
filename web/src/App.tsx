@@ -1,3 +1,6 @@
+import { errorText } from "./http-errors";
+import { AuthDialog } from "./Auth";
+import { Admin } from "./Admin";
 import { useEffect, useMemo, useState, useRef } from "react";
 import {
   ArrowUpRight,
@@ -30,10 +33,9 @@ import { Badge, Meter, Modal, Empty, Diff, ChangeAdvisor } from "./components";
 import { Studio } from "./Studio";
 import { QuestDetail, ProposalCard } from "./QuestDetail";
 import "./style.css";
+import "./v2.css";
 export function App() {
-  const [lang, setLang] = useState<Lang>(
-    (localStorage.getItem("sana-lang") as Lang) || "ru",
-  );
+  const lang: Lang = "ru";
   const [data, setData] = useState<Data | null>(null);
   const [route, setRoute] = useState(location.hash.slice(1) || "catalog");
   const [modal, setModal] = useState("");
@@ -50,9 +52,12 @@ export function App() {
     JSON.parse(localStorage.getItem("sana-access") || "{}"),
   );
   const t = translator(lang);
+  const refreshSequence = useRef(0);
   async function refresh() {
+    const sequence = ++refreshSequence.current;
     try {
-      setData(await api<Data>("/bootstrap"));
+      const next = await api<Data>("/bootstrap");
+      if (sequence === refreshSequence.current) setData(next);
     } catch (e) {
       setError(String(e));
     }
@@ -91,8 +96,11 @@ export function App() {
     location.hash = p;
     setModal("");
   };
+  useEffect(() => {
+    if (data?.user?.role === "pending") setModal("login");
+  }, [data?.user?.id, data?.user?.role]);
   const requireProfile = (action: () => void) => {
-    if (!data?.user) setModal("login");
+    if (!data?.user || data.user.role === "pending") setModal("login");
     else action();
   };
   const onError = (e: unknown) => setError(String(e));
@@ -114,6 +122,9 @@ export function App() {
           return {
             ...c,
             fields: v.fields,
+            coverId: v.coverId,
+            attachmentIds: v.attachmentIds,
+            languagePenalty: v.languagePenalty,
             approved: v.approved,
             score: v.score,
           };
@@ -161,7 +172,7 @@ export function App() {
   const current = data?.challenges.find((c) => c.id === route.split("/")[1]);
   const newAction = () =>
     requireProfile(() =>
-      data?.user?.role === "business" ? go("new") : setModal("login"),
+      data?.user?.role === "business" ? go("new") : setToast(t("learnRole")),
     );
   const nav = [
     ["catalog", Compass, "catalog"],
@@ -212,7 +223,7 @@ export function App() {
             <small>{t("appSubtitle")}</small>
           </span>
         </a>
-        <div className="nav-caption">WORKSPACE</div>
+
         <nav>
           {nav.map(([r, Icon, k]) => (
             <a key={r} href={"#" + r} className={route === r ? "active" : ""}>
@@ -228,16 +239,13 @@ export function App() {
               )}
             </a>
           ))}
+          {data?.user?.role === "admin" && (
+            <a href="#admin" className={route === "admin" ? "active" : ""}>
+              <ShieldCheck size={20} />
+              {t("admin")}
+            </a>
+          )}
         </nav>
-        <div className="sidebar-card">
-          <div className="pixel-spark">✦</div>
-          <h3>{t("introProgress")}</h3>
-          <p>{t("progressText")}</p>
-          <button onClick={newAction}>
-            {t("newQuest")}
-            <Plus size={15} />
-          </button>
-        </div>
         <div className="sidebar-bottom">
           <a
             className={route === "plans" ? "pro-nav active" : "pro-nav"}
@@ -245,7 +253,7 @@ export function App() {
           >
             <Sparkles size={19} />
             <span>Sana Pro</span>
-            <span className="tiny-label">UPGRADE</span>
+            <span className="tiny-label">PRO</span>
           </a>
           <button className="a11y" onClick={() => setModal("access")}>
             <Accessibility size={19} />
@@ -278,17 +286,12 @@ export function App() {
             </strong>
           </div>
           <div className="top-actions">
-            <label className="lang-select">
-              <span className="sr-only">{t("language")}</span>
-              <select
-                value={lang}
-                onChange={(e) => setLang(e.target.value as Lang)}
-              >
-                <option value="ru">RU</option>
-                <option value="kk">KZ</option>
-                <option value="en">EN</option>
-              </select>
-            </label>
+            <span
+              className="language-fixed"
+              aria-label="Язык интерфейса: русский"
+            >
+              РУС
+            </span>
             <button
               className="icon-btn notification-button"
               aria-label={t("notifications")}
@@ -303,14 +306,14 @@ export function App() {
               onClick={() => setModal("login")}
             >
               <span className="profile-avatar">
-                {data?.user?.role === "student" ? "👾" : "A"}
+                {data?.user?.name?.slice(0, 1) || <LogIn size={17} />}
               </span>
               <span className="profile-copy">
                 <strong>{data?.user?.name || t("login")}</strong>
                 <small>
                   {data?.user
                     ? t(data.user.role) + " · " + t(data.user.plan)
-                    : t("demo")}
+                    : t("register")}
                 </small>
               </span>
               <ChevronDown size={15} />
@@ -324,69 +327,19 @@ export function App() {
             <>
               {route === "catalog" && (
                 <>
-                  <section className="hero">
-                    <div className="hero-copy">
-                      <span className="eyebrow">
-                        <span /> {t("heroLabel")}
+                  <section className="catalog-welcome">
+                    <div>
+                      <span className="section-kicker">
+                        <span className="live-dot" /> SANA QUEST
                       </span>
-                      <h1>{t("heroTitle")}</h1>
-                      <p>{t("heroText")}</p>
-                      <button
-                        className="primary"
-                        onClick={() =>
-                          document
-                            .getElementById("quests")
-                            ?.scrollIntoView({
-                              behavior: access.reduceMotion
-                                ? "instant"
-                                : "smooth",
-                            })
-                        }
-                      >
-                        {t("explore")}
-                        <ArrowUpRight size={17} />
-                      </button>
+                      <h1>{t("tasksForYou")}</h1>
+                      <p>{t("cleanCatalogSub")}</p>
                     </div>
-                    <div className="hero-label">
-                      <span>✦</span> LEVEL UP YOUR IMPACT
-                    </div>
+                    <div className="welcome-art" aria-hidden="true" />
                   </section>
-                  <div className="stats-strip">
-                    <div>
-                      <span className="stat-icon mint">
-                        <Flag size={20} />
-                      </span>
-                      <strong>
-                        {published.length.toString().padStart(2, "0")}
-                      </strong>
-                      <span>{t("openQuests")}</span>
-                    </div>
-                    <div>
-                      <span className="stat-icon peach">
-                        <ShieldCheck size={20} />
-                      </span>
-                      <strong>
-                        {published
-                          .filter((c) => c.score >= 70)
-                          .length.toString()
-                          .padStart(2, "0")}
-                      </strong>
-                      <span>{t("readyQuests")}</span>
-                    </div>
-                    <div>
-                      <span className="stat-icon lavender">
-                        <Users size={20} />
-                      </span>
-                      <strong>
-                        {data.teams.length.toString().padStart(2, "0")}
-                      </strong>
-                      <span>{t("guilds")}</span>
-                    </div>
-                  </div>
                   <section id="quests">
                     <div className="section-heading">
                       <div>
-                        <div className="eyebrow small">QUEST BOARD</div>
                         <h2>{t("catalogTitle")}</h2>
                         <p>{t("catalogSub")}</p>
                       </div>
@@ -495,9 +448,8 @@ export function App() {
               {route === "teams" && (
                 <>
                   <div className="page-heading">
-                    <span className="eyebrow">FIND YOUR PARTY</span>
                     <h1>{t("teamTitle")}</h1>
-                    <p>{t("teamSub")}</p>
+                    <p>{t("cleanTeamSub")}</p>
                   </div>
                   <label className="search-field team-search">
                     <Search size={19} />
@@ -528,7 +480,7 @@ export function App() {
                             <span className="pixel-pattern" />
                             <span className="team-mascot">{tm.emoji}</span>
                             <span className="level-tag">
-                              LVL {Math.floor(tm.xp / 200) + 1}
+                              {t("level")} {Math.floor(tm.xp / 200) + 1}
                             </span>
                           </div>
                           <div className="team-body">
@@ -578,7 +530,7 @@ export function App() {
               {route === "workspace" && (
                 <>
                   <div className="page-heading">
-                    <span className="eyebrow">YOUR ADVENTURE</span>
+                    <span className="eyebrow">ВАШИ ПРОЕКТЫ</span>
                     <div className="row between">
                       <h1>{t("workspace")}</h1>
                       {data.user?.role === "business" && (
@@ -659,6 +611,9 @@ export function App() {
                 ) : (
                   <Empty text={t("noResults")} />
                 ))}
+              {route === "admin" && (
+                <Admin t={t} current={data.user} refresh={refresh} />
+              )}
               {route === "plans" && (
                 <>
                   <div className="page-heading centered">
@@ -691,25 +646,19 @@ export function App() {
                           className={plan === "pro" ? "primary" : "secondary"}
                           disabled={data.user?.plan === plan}
                           onClick={() =>
-                            requireProfile(async () => {
-                              try {
-                                await api("/subscription", { plan });
-                                await refresh();
-                                setToast(t("successToast"));
-                              } catch (e) {
-                                onError(e);
-                              }
-                            })
+                            data.user?.role === "admin"
+                              ? go("admin")
+                              : setModal("pro-info")
                           }
                         >
                           {data.user?.plan === plan
                             ? t("activePlan")
-                            : t(plan === "pro" ? "activate" : "downgrade")}
+                            : t("contactAdmin")}
                         </button>
                       </article>
                     ))}
                   </div>
-                  <p className="centered muted">{t("demoPayment")}</p>
+                  <p className="centered muted">{t("activationNote")}</p>
                   <div className="fairness">
                     <ShieldCheck />
                     {t("noPayToWin")}
@@ -721,54 +670,25 @@ export function App() {
           <footer className="main-footer">
             <span>✦ SANA QUEST</span>
             <p>{t("footer")}</p>
-            <span>BUILT IN KAZAKHSTAN ↗</span>
+            <span>СОЗДАНО В КАЗАХСТАНЕ ↗</span>
           </footer>
         </main>
       </div>
       {modal === "login" && data && (
-        <Modal title={t("demoTitle")} onClose={() => setModal("")}>
-          <p className="muted">{t("demoText")}</p>
-          {["business", "student"].map((role) => (
-            <section key={role}>
-              <h4 className="micro uppercase">{t(role)}</h4>
-              <div className="profile-list">
-                {data.profiles
-                  .filter((p) => p.role === role)
-                  .map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={async () => {
-                        try {
-                          await api("/session", { userId: p.id });
-                          await refresh();
-                          setModal("");
-                          setNotice("");
-                          setToast(p.name);
-                        } catch (e) {
-                          onError(e);
-                        }
-                      }}
-                    >
-                      <span
-                        className={
-                          "profile-avatar " +
-                          (role === "student" ? "student-avatar" : "")
-                        }
-                      >
-                        {role === "business" ? "◈" : "👾"}
-                      </span>
-                      <span>
-                        <strong>{p.name}</strong>
-                        <small>
-                          {t(role)} · {t(p.plan)}
-                        </small>
-                      </span>
-                      <ArrowRight size={18} />
-                    </button>
-                  ))}
-              </div>
-            </section>
-          ))}
+        <AuthDialog
+          user={data.user}
+          t={t}
+          refresh={refresh}
+          onClose={() => setModal("")}
+          go={go}
+        />
+      )}
+      {modal === "pro-info" && (
+        <Modal title={t("contactAdmin")} onClose={() => setModal("")}>
+          <p>{t("accessInfo")}</p>
+          <button className="primary" onClick={() => setModal("")}>
+            {t("close")}
+          </button>
         </Modal>
       )}
       {modal === "access" && (
@@ -842,7 +762,7 @@ export function App() {
           <p>{t("changedText")}</p>
           <h3>{noticeChallenge.fields.title}</h3>
           <ChangeAdvisor challenge={noticeChallenge} lang={lang} t={t} />
-          <Diff challenge={noticeChallenge} t={t} />
+          <Diff challenge={noticeChallenge} t={t} data={data || undefined} />
           <button
             className="primary"
             onClick={async () => {
@@ -913,7 +833,7 @@ export function App() {
       {error && (
         <Modal title={t("error")} onClose={() => setError("")}>
           <p role="alert" className="error-text">
-            {error.replace("Error: ", "")}
+            {errorText(error)}
           </p>
           <button className="primary" onClick={() => setError("")}>
             {t("close")}
@@ -938,59 +858,60 @@ function QuestCard({
   t: (k: string) => string;
   onOpen: () => void;
 }) {
-  const icons: Record<string, string> = {
-    Retail: "☕",
-    Social: "🌿",
-    Education: "📚",
-    Analytics: "📊",
-    Ecology: "♻️",
-    Technology: "⚡",
+  const art: Record<string, string> = {
+    Retail: "coffee",
+    Social: "city",
+    Education: "learn",
+    Analytics: "data",
+    Ecology: "green",
+    Technology: "tech",
   };
   return (
     <article className="quest-card">
-      <div className="row between">
-        <span
-          className={
-            "company-icon " +
-            (c.category === "Social"
-              ? "mint"
-              : c.category === "Education"
-                ? "lavender"
-                : c.category === "Analytics"
-                  ? "blue"
-                  : "peach")
-          }
-        >
-          {icons[c.category] || "✦"}
-        </span>
-        <Badge score={c.score} t={t} />
-      </div>
-      <div className="company-name">
-        {c.company}
-        <span>↗</span>
-      </div>
-      <h3>
-        <button onClick={onOpen}>{c.fields.title}</button>
-      </h3>
-      <p className="quest-description">{c.fields.need}</p>
-      <div className="chips">
-        <span>{t(c.category)}</span>
-        <span>{c.locale.toUpperCase()}</span>
-        {!c.published && <span>{t("notPublished")}</span>}
-      </div>
-      <div className="quest-card-bottom">
-        <div className="row between">
-          <span>{t("readiness")}</span>
-          <strong>
-            {c.score}
-            <small> / 100</small>
-          </strong>
+      <button
+        className={"quest-cover cover-" + (art[c.category] || "tech")}
+        onClick={onOpen}
+        aria-label={c.fields.title}
+      >
+        {c.coverId ? (
+          <img src={"/covers/" + c.coverId + ".jpg"} alt="" loading="lazy" />
+        ) : (
+          <img
+            src={"/assets/cover-" + (art[c.category] || "tech") + ".svg"}
+            alt=""
+            loading="lazy"
+          />
+        )}
+        <span className="cover-category">{t(c.category)}</span>
+      </button>
+      <div className="quest-card-content">
+        <div className="company-name">
+          {c.company}
+          <span>{c.locale.toUpperCase()}</span>
         </div>
-        <Meter score={c.score} />
-        <button className="card-link" onClick={onOpen}>
-          {t("viewQuest")}
-          <ArrowUpRight size={17} />
-        </button>
+        <h3>
+          <button onClick={onOpen}>{c.fields.title}</button>
+        </h3>
+        <p className="quest-description">{c.fields.need}</p>
+        <div className="quest-card-bottom">
+          <div className="readiness-compact">
+            <Badge score={c.score} t={t} />
+            <span title={t("scoreExplanation")}>
+              {t("readyScore")}{" "}
+              <strong>
+                {c.score}
+                <small>/100</small>
+              </strong>
+            </span>
+          </div>
+          {!c.published && (
+            <span className="micro muted">{t("notPublished")}</span>
+          )}
+          <button className="card-link" onClick={onOpen}>
+            {t("viewQuest")}
+            <ArrowUpRight size={17} />
+          </button>
+        </div>
       </div>
     </article>
   );

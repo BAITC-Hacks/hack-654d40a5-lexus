@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +24,6 @@ import (
 type App struct {
 	analysisLocks sync.Map
 	db            *pgxpool.Pool
-	sessions      sync.Map
 	limits        sync.Map
 	mediaDir      string
 }
@@ -112,11 +112,11 @@ func fail(w http.ResponseWriter, err error) {
 		status = ae.status
 		msg = ae.message
 	} else {
-		log.Printf("request failed: %v", err)
+		log.Printf("request_id=%s status=500 error=%v", w.Header().Get("X-Request-ID"), err)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg, "requestId": w.Header().Get("X-Request-ID")})
 }
 func decode(w http.ResponseWriter, r *http.Request, v any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, 256*1024)
@@ -135,15 +135,19 @@ func (a *App) uid(r *http.Request) string {
 	if e != nil {
 		return ""
 	}
-	if v, ok := a.sessions.Load(c.Value); ok {
-		return v.(string)
+	var uid string
+	if len(c.Value) != 64 {
+		return ""
 	}
-	return ""
+	if e = a.db.QueryRow(r.Context(), "SELECT user_id FROM auth_sessions WHERE token_hash=$1 AND expires_at>now()", hash(c.Value)).Scan(&uid); e != nil {
+		return ""
+	}
+	return uid
 }
 func (a *App) authorized(s *State, r *http.Request) (*User, error) {
 	u := s.user(a.uid(r))
 	if u == nil {
-		return nil, appError{401, "Choose a demo profile to continue"}
+		return nil, appError{401, "Please sign in to continue"}
 	}
 	return u, nil
 }
@@ -171,29 +175,10 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			respond(w, map[string]string{"status": "ok"})
 		}
-	case r.URL.Path == "/api/session" && r.Method == "POST":
-		var in struct {
-			UserID string `json:"userId"`
-		}
-		if err = decode(w, r, &in); err == nil {
-			if env("DEMO_MODE", "true") != "true" {
-				err = forbidden()
-				break
-			}
-			s, e := a.read(r.Context())
-			if e != nil {
-				err = e
-				break
-			}
-			if s.user(in.UserID) == nil {
-				err = bad("Unknown demo profile")
-				break
-			}
-			token := id()
-			a.sessions.Store(token, in.UserID)
-			http.SetCookie(w, &http.Cookie{Name: "sana_session", Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 86400, Secure: r.TLS != nil})
-			respond(w, s.user(in.UserID))
-		}
+	case strings.HasPrefix(r.URL.Path, "/api/auth/"):
+		err = a.authAPI(w, r)
+	case r.URL.Path == "/api/admin/users":
+		err = a.adminAPI(w, r)
 	case r.URL.Path == "/api/bootstrap" && r.Method == "GET":
 		var s State
 		s, err = a.read(r.Context())
@@ -205,10 +190,15 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 		cs := []Challenge{}
 		for _, c := range s.Challenges {
 			if c.OwnerID == uid {
-				c.Score = score(c.Fields, c.Approved)
+				c.Score = challengeScore(&c)
 				cs = append(cs, c)
 			} else if c.Published && len(c.Versions) > 0 {
 				v := c.Versions[len(c.Versions)-1]
+				c.AttachmentIDs = v.AttachmentIDs
+				c.LanguagePenalty = v.LanguagePenalty
+				c.LanguageAcknowledged = ""
+				c.LanguageAudit = LanguageAudit{}
+				c.CoverID = v.CoverID
 				c.Fields = v.Fields
 				c.Approved = v.Approved
 				c.Score = v.Score
@@ -236,7 +226,13 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 				ms = append(ms, m)
 			}
 		}
-		respond(w, map[string]any{"user": u, "profiles": s.Users, "challenges": cs, "teams": s.Teams, "proposals": ps, "notifications": ns, "media": ms, "criteria": criteria, "capabilities": map[string]any{"ai": openAIKey() != "", "speech": openAIKey() != "" || elevenKey() != "", "demo": env("DEMO_MODE", "true") == "true"}})
+		files := []Attachment{}
+		for _, f := range s.Attachments {
+			if attachmentVisible(&s, f, uid) {
+				files = append(files, f)
+			}
+		}
+		respond(w, map[string]any{"attachments": files, "user": u, "challenges": cs, "teams": s.Teams, "proposals": ps, "notifications": ns, "media": ms, "criteria": criteria, "capabilities": map[string]any{"ai": openAIKey() != "", "speech": openAIKey() != "" || elevenKey() != "", "images": openAIKey() != ""}})
 	case r.URL.Path == "/api/challenges" && r.Method == "POST":
 		var in struct {
 			Fields   Fields `json:"fields"`
@@ -287,12 +283,14 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 		err = a.challengeAPI(w, r)
 	case r.URL.Path == "/api/proposals" && r.Method == "POST":
 		var in struct {
-			ChallengeID string `json:"challengeId"`
-			Version     int    `json:"version"`
-			Idea        string `json:"idea"`
-			Plan        string `json:"plan"`
-			Deadline    string `json:"deadline"`
-			Link        string `json:"link"`
+			AttachmentIDs          []string `json:"attachmentIds"`
+			AcceptLanguageMismatch bool     `json:"acceptLanguageMismatch"`
+			ChallengeID            string   `json:"challengeId"`
+			Version                int      `json:"version"`
+			Idea                   string   `json:"idea"`
+			Plan                   string   `json:"plan"`
+			Deadline               string   `json:"deadline"`
+			Link                   string   `json:"link"`
 		}
 		if err = decode(w, r, &in); err != nil {
 			break
@@ -316,7 +314,15 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 			if len(strings.TrimSpace(in.Idea)) < 10 || len(strings.TrimSpace(in.Plan)) < 10 || in.Deadline == "" || len(in.Idea)+len(in.Plan) > 15000 || !safeLink(in.Link) {
 				return bad("Provide an idea, plan, deadline and valid http(s) link")
 			}
-			p = Proposal{ID: id(), ChallengeID: c.ID, Version: in.Version, TeamID: u.TeamID, Idea: in.Idea, Plan: in.Plan, Deadline: in.Deadline, Link: in.Link, Status: "pending", At: now()}
+			if e = validateAttachments(s, in.AttachmentIDs, u.ID); e != nil {
+				return e
+			}
+			audit := auditLanguage(in.Idea+"\n"+in.Plan, c.Locale)
+			fa := attachmentAudit(in.AttachmentIDs, s, c.Locale)
+			if (audit.Warning || fa.Warning) && !in.AcceptLanguageMismatch {
+				return languageError()
+			}
+			p = Proposal{AttachmentIDs: in.AttachmentIDs, LanguageWarning: audit.Warning || fa.Warning, ID: id(), ChallengeID: c.ID, Version: in.Version, TeamID: u.TeamID, Idea: in.Idea, Plan: in.Plan, Deadline: in.Deadline, Link: in.Link, Status: "pending", At: now()}
 			s.Proposals = append(s.Proposals, p)
 			s.notify(c.OwnerID, c.ID, "proposal", in.Version)
 			return nil
@@ -348,30 +354,12 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			respond(w, map[string]bool{"ok": true})
 		}
-	case r.URL.Path == "/api/subscription" && r.Method == "POST":
-		var in struct {
-			Plan string `json:"plan"`
-		}
-		if err = decode(w, r, &in); err != nil {
-			break
-		}
-		err = a.mutate(r.Context(), func(s *State) error {
-			u, e := a.authorized(s, r)
-			if e != nil {
-				return e
-			}
-			if env("DEMO_MODE", "true") != "true" {
-				return forbidden()
-			}
-			if in.Plan != "free" && in.Plan != "pro" {
-				return bad("Invalid plan")
-			}
-			u.Plan = in.Plan
-			return nil
-		})
-		if err == nil {
-			respond(w, map[string]bool{"ok": true})
-		}
+	case r.URL.Path == "/api/audit" && r.Method == "POST":
+		err = a.auditAPI(w, r)
+	case r.URL.Path == "/api/attachments" && r.Method == "POST":
+		err = a.attachmentAPI(w, r)
+	case (r.URL.Path == "/api/covers" || r.URL.Path == "/api/covers/generate") && r.Method == "POST":
+		err = a.coverAPI(w, r)
 	case r.URL.Path == "/api/changes" && r.Method == "POST":
 		err = a.changeAPI(w, r)
 	case r.URL.Path == "/api/ai" && r.Method == "POST":
@@ -400,12 +388,15 @@ func (a *App) challengeAPI(w http.ResponseWriter, r *http.Request) error {
 		action = parts[1]
 	}
 	var in struct {
-		Revision        int      `json:"revision"`
-		Fields          Fields   `json:"fields"`
-		Confirm         []string `json:"confirm"`
-		Note            string   `json:"note"`
-		PreviewApproved bool     `json:"previewApproved"`
-		Source          string   `json:"source"`
+		CoverID                *string   `json:"coverId"`
+		AttachmentIDs          *[]string `json:"attachmentIds"`
+		AcceptLanguageMismatch bool      `json:"acceptLanguageMismatch"`
+		Revision               int       `json:"revision"`
+		Fields                 Fields    `json:"fields"`
+		Confirm                []string  `json:"confirm"`
+		Note                   string    `json:"note"`
+		PreviewApproved        bool      `json:"previewApproved"`
+		Source                 string    `json:"source"`
 	}
 	if err := decode(w, r, &in); err != nil {
 		return err
@@ -423,6 +414,23 @@ func (a *App) challengeAPI(w http.ResponseWriter, r *http.Request) error {
 		if c.OwnerID != u.ID {
 			return forbidden()
 		}
+		materialsChanged := in.AttachmentIDs != nil && !slices.Equal(c.AttachmentIDs, *in.AttachmentIDs)
+		coverChanged := in.CoverID != nil && c.CoverID != *in.CoverID
+		if in.AttachmentIDs != nil {
+			if e = validateAttachments(s, *in.AttachmentIDs, u.ID); e != nil {
+				return e
+			}
+			if materialsChanged {
+				delete(c.Approved, "data")
+			}
+			c.AttachmentIDs = append([]string{}, (*in.AttachmentIDs)...)
+		}
+		if in.CoverID != nil {
+			if !ownedCover(s, *in.CoverID, u.ID) {
+				return forbidden()
+			}
+			c.CoverID = *in.CoverID
+		}
 		if in.Revision != c.Revision {
 			return appError{409, "The draft changed in another tab. Reload before saving."}
 		}
@@ -430,6 +438,7 @@ func (a *App) challengeAPI(w http.ResponseWriter, r *http.Request) error {
 			if !in.PreviewApproved {
 				return bad("Review and approve the preview")
 			}
+			syncLanguage(c, s, in.AcceptLanguageMismatch)
 			if e = publish(s, c, in.Note); e != nil {
 				return bad(e.Error())
 			}
@@ -437,7 +446,7 @@ func (a *App) challengeAPI(w http.ResponseWriter, r *http.Request) error {
 			if e = validateFields(in.Fields); e != nil {
 				return bad(e.Error())
 			}
-			changed := false
+			changed := materialsChanged || coverChanged
 			for _, k := range fieldKeys {
 				if c.Fields[k] != in.Fields[k] {
 					delete(c.Approved, k)
@@ -456,7 +465,8 @@ func (a *App) challengeAPI(w http.ResponseWriter, r *http.Request) error {
 					c.Approved[k] = hash(c.Fields[k])
 				}
 			}
-			c.Score = score(c.Fields, c.Approved)
+			syncLanguage(c, s, in.AcceptLanguageMismatch)
+			c.Score = challengeScore(c)
 			c.Revision++
 			kind := "edited"
 			if len(in.Confirm) > 0 {
@@ -486,10 +496,12 @@ func (a *App) challengeAPI(w http.ResponseWriter, r *http.Request) error {
 func (a *App) proposalAPI(w http.ResponseWriter, r *http.Request) error {
 	pid := strings.TrimPrefix(r.URL.Path, "/api/proposals/")
 	var in struct {
-		Action     string `json:"action"`
-		Submission string `json:"submission"`
-		Stars      int    `json:"stars"`
-		Text       string `json:"text"`
+		AttachmentIDs          []string `json:"attachmentIds"`
+		AcceptLanguageMismatch bool     `json:"acceptLanguageMismatch"`
+		Action                 string   `json:"action"`
+		Submission             string   `json:"submission"`
+		Stars                  int      `json:"stars"`
+		Text                   string   `json:"text"`
 	}
 	if e := decode(w, r, &in); e != nil {
 		return e
@@ -537,6 +549,16 @@ func (a *App) proposalAPI(w http.ResponseWriter, r *http.Request) error {
 			if len(strings.TrimSpace(in.Submission)) < 10 || len(in.Submission) > 5000 {
 				return bad("Describe the final result (10–5000 characters)")
 			}
+			if e = validateAttachments(s, in.AttachmentIDs, u.ID); e != nil {
+				return e
+			}
+			audit := auditLanguage(in.Submission, c.Locale)
+			fa := attachmentAudit(in.AttachmentIDs, s, c.Locale)
+			if (audit.Warning || fa.Warning) && !in.AcceptLanguageMismatch {
+				return languageError()
+			}
+			p.LanguageWarning = p.LanguageWarning || audit.Warning || fa.Warning
+			p.SubmissionAttachmentIDs = in.AttachmentIDs
 			p.Submission = in.Submission
 			s.notify(c.OwnerID, c.ID, "submission", p.Version)
 		case "milestone":
@@ -599,11 +621,16 @@ func main() {
 		log.Fatal(e)
 	}
 	a := &App{db: db, mediaDir: env("MEDIA_DIR", "data/media")}
+	if e = a.migrateAccounts(ctx); e != nil {
+		log.Fatal(e)
+	}
 	os.MkdirAll(a.mediaDir, 0750)
 	a.recoverMedia()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/", a.api)
 	mux.HandleFunc("/media/", a.serveMedia)
+	mux.HandleFunc("/covers/", a.serveCover)
+	mux.HandleFunc("/files/", a.serveAttachment)
 	static := env("STATIC_DIR", "web/dist")
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		p := filepath.Join(static, filepath.Clean("/"+r.URL.Path))
@@ -614,6 +641,7 @@ func main() {
 		http.ServeFile(w, r, filepath.Join(static, "index.html"))
 	})
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Request-ID", id())
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("X-Frame-Options", "DENY")

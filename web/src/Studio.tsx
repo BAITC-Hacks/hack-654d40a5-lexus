@@ -1,4 +1,7 @@
-import { useState } from "react";
+import { LanguageWarning, useLanguageAudit, languageFor } from "./Language";
+import { AttachmentEditor, AttachmentList } from "./Attachments";
+import { CoverEditor } from "./Cover";
+import { useState, useEffect, useRef } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -57,19 +60,70 @@ export function Studio({
   const [stage, setStage] = useState(challenge ? 2 : 0);
   const [group, setGroup] = useState(0);
   const [source, setSource] = useState(challenge?.fields.need || "");
-  const [answers, setAnswers] = useState("");
+  const [answerValues, setAnswerValues] = useState<string[]>([]);
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [reviewed, setReviewed] = useState<boolean[]>([]);
+  const [attachmentIds, setAttachmentIds] = useState<string[]>(
+    challenge?.attachmentIds || [],
+  );
+  const [languageAccepted, setLanguageAccepted] = useState(false);
+  const [coverId, setCoverId] = useState(challenge?.coverId || "");
+  const questionRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (stage === 1) questionRef.current?.focus();
+  }, [stage, questionIndex]);
   const [questions, setQuestions] = useState<string[]>([]);
+  const answers = questions
+    .map((q, i) => q + "\n" + (answerValues[i] || t("skipQuestion")))
+    .join("\n\n");
+  const setAnswer = (value: string) =>
+    setAnswerValues((prev) => {
+      const next = [...prev];
+      next[questionIndex] = value;
+      return next;
+    });
+  const advance = () => {
+    setReviewed((prev) => {
+      const next = [...prev];
+      next[questionIndex] = true;
+      return next;
+    });
+    setQuestionIndex((i) => i + 1);
+  };
   const [provider, setProvider] = useState("");
   const [category, setCategory] = useState(challenge?.category || "Retail");
-  const [locale, setLocale] = useState<Lang>(challenge?.locale || lang);
+  const locale: Lang = challenge?.locale || "ru";
+  const sourceLanguage = useLanguageAudit(stage === 0 ? source : "", locale);
+  const answerLanguage = useLanguageAudit(
+    stage === 1 ? answerValues[questionIndex] || "" : "",
+    locale,
+  );
+  const finalLanguage = useLanguageAudit(stage >= 2 ? f : "", locale);
+  const fileWarning = data.attachments?.find(
+    (file) =>
+      attachmentIds.includes(file.id) &&
+      languageFor(file.audit, locale).warning,
+  )?.audit;
+  const languageAudit = finalLanguage.audit?.warning
+    ? finalLanguage.audit
+    : fileWarning
+      ? languageFor(fileWarning, locale)
+      : undefined;
+  useEffect(() => {
+    setLanguageAccepted(false);
+  }, [JSON.stringify(f), attachmentIds.join(",")]);
   const [busy, setBusy] = useState(false);
   const [previewApproved, setPreviewApproved] = useState(false);
   const [note, setNote] = useState("");
   const [aiApplied, setAiApplied] = useState(false);
   const own =
     data.user?.role === "business" && (!c || c.ownerId === data.user.id);
-  const confirmed = (k: string) => !!c?.approved[k] && c.fields[k] === f[k];
-  const score = data.criteria.reduce(
+  const confirmed = (k: string) =>
+    !!c?.approved[k] &&
+    c.fields[k] === f[k] &&
+    (k !== "data" ||
+      JSON.stringify(attachmentIds) === JSON.stringify(c.attachmentIds || []));
+  const baseScore = data.criteria.reduce(
     (sum, crit) =>
       sum +
       (crit.fields.every((k) => f[k]?.trim().length >= 3 && confirmed(k))
@@ -77,6 +131,8 @@ export function Studio({
         : 0),
     0,
   );
+  const languagePenalty = languageAudit?.warning && languageAccepted ? 5 : 0;
+  const score = Math.max(0, baseScore - languagePenalty);
   function setField(k: string, v: string) {
     setF((prev) => ({ ...prev, [k]: v }));
     setPreviewApproved(false);
@@ -101,6 +157,9 @@ export function Studio({
       revision: current.revision,
       fields,
       confirm,
+      coverId,
+      attachmentIds,
+      acceptLanguageMismatch: languageAccepted,
       source: aiApplied ? "ai" : "manual",
     });
     setAiApplied(false);
@@ -127,7 +186,12 @@ export function Studio({
         questions: string[];
         provider: string;
       }>("/ai", { source: input, locale, local });
-      setQuestions(result.questions);
+      if (!build) {
+        setQuestions(result.questions);
+        setAnswerValues([]);
+        setReviewed([]);
+        setQuestionIndex(0);
+      }
       setProvider(result.provider);
       if (result.provider === "openai") {
         setF((prev) => ({
@@ -164,7 +228,6 @@ export function Studio({
         {t("back")}
       </button>
       <div className="page-heading studio-heading">
-        <span className="eyebrow">BUILD SOMETHING THAT MATTERS</span>
         <h1>{t("studio")}</h1>
         <p>{t("studioSub")}</p>
       </div>
@@ -182,7 +245,7 @@ export function Studio({
           </button>
         ))}
       </div>
-      <div className="studio-layout">
+      <div className={"studio-layout " + (stage < 2 ? "focused-studio" : "")}>
         <section className="studio-panel">
           {stage === 0 && (
             <>
@@ -217,23 +280,18 @@ export function Studio({
                     ))}
                   </select>
                 </label>
-                <label>
-                  {t("contentLanguage")}
-                  <select
-                    value={locale}
-                    onChange={(e) => setLocale(e.target.value as Lang)}
-                    disabled={!!c}
-                  >
-                    <option value="ru">Русский</option>
-                    <option value="kk">Қазақша</option>
-                    <option value="en">English</option>
-                  </select>
-                </label>
+                <div className="language-note">
+                  Язык задачи:{" "}
+                  <strong>
+                    {locale === "ru" ? "Русский" : locale.toUpperCase()}
+                  </strong>
+                </div>
               </div>
               <label>
                 {t("need")}
                 <textarea
                   className="idea-input"
+                  aria-label={t("need")}
                   rows={7}
                   value={source}
                   onChange={(e) => {
@@ -254,10 +312,20 @@ export function Studio({
                   setField("need", source + " " + s);
                 }}
               />
+              <LanguageWarning
+                audit={sourceLanguage.audit}
+                accepted={sourceLanguage.accepted}
+                onAccept={sourceLanguage.setAccepted}
+              />
               <div className="studio-actions">
                 <button
                   className="primary"
-                  disabled={busy || source.trim().length < 5}
+                  disabled={
+                    busy ||
+                    source.trim().length < 5 ||
+                    sourceLanguage.blocked ||
+                    sourceLanguage.checking
+                  }
                   onClick={() => ask()}
                 >
                   <Sparkles size={17} />
@@ -265,7 +333,12 @@ export function Studio({
                 </button>
                 <button
                   className="text-btn"
-                  disabled={source.trim().length < 5 || busy}
+                  disabled={
+                    source.trim().length < 5 ||
+                    busy ||
+                    sourceLanguage.blocked ||
+                    sourceLanguage.checking
+                  }
                   onClick={() => {
                     setF({
                       ...f,
@@ -282,7 +355,12 @@ export function Studio({
               {data.capabilities.ai && (
                 <button
                   className="text-btn micro"
-                  disabled={busy || source.trim().length < 5}
+                  disabled={
+                    busy ||
+                    source.trim().length < 5 ||
+                    sourceLanguage.blocked ||
+                    sourceLanguage.checking
+                  }
                   onClick={() => ask(false, true)}
                 >
                   {t("localHelp")}
@@ -291,68 +369,156 @@ export function Studio({
             </>
           )}
           {stage === 1 && (
-            <>
-              <div className="panel-title">
-                <span className="stat-icon lavender">
-                  <Sparkles size={22} />
-                </span>
-                <div>
-                  <h2>{t("clarify")}</h2>
-                  <p>
-                    {t(provider === "openai" ? "aiProvider" : "localProvider")}
-                  </p>
-                </div>
+            <div className="question-flow">
+              <div className="question-progress-copy" aria-live="polite">
+                <span>{t("clarify")}</span>
+                <strong>
+                  {questionIndex < questions.length
+                    ? `${t("question")} ${questionIndex + 1} ${t("of")} ${questions.length}`
+                    : t("questionsComplete")}
+                </strong>
               </div>
-              <div className="question-list">
-                {questions.map((q, i) => (
-                  <div key={i}>
-                    <span>{String(i + 1).padStart(2, "0")}</span>
-                    <p>{q}</p>
+              <progress
+                className="question-progress"
+                aria-label={t("clarify")}
+                max={questions.length || 1}
+                value={reviewed.filter(Boolean).length}
+              />
+              {questionIndex < questions.length ? (
+                <>
+                  <p className="muted question-intro">{t("questionHint")}</p>
+                  <h2 id="current-question" className="current-question">
+                    {questions[questionIndex]}
+                  </h2>
+                  <Listen
+                    key={"listen" + questionIndex}
+                    text={questions[questionIndex]}
+                    t={t}
+                    lang={locale}
+                    live={data.capabilities.speech}
+                    onError={onError}
+                  />
+                  <label className="spaced-label">
+                    {t("answerLabel")}
+                    <textarea
+                      ref={questionRef}
+                      rows={4}
+                      maxLength={1000}
+                      aria-labelledby="current-question"
+                      value={answerValues[questionIndex] || ""}
+                      onChange={(e) => setAnswer(e.target.value)}
+                      placeholder={t("answerHint")}
+                      disabled={busy}
+                    />
+                  </label>
+                  <AudioInput
+                    key={questionIndex}
+                    t={t}
+                    lang={locale}
+                    enabled={data.capabilities.speech}
+                    onError={onError}
+                    onText={(v) =>
+                      setAnswer(
+                        ((answerValues[questionIndex] || "") + " " + v).slice(
+                          0,
+                          1000,
+                        ),
+                      )
+                    }
+                  />
+                  <LanguageWarning
+                    audit={answerLanguage.audit}
+                    accepted={answerLanguage.accepted}
+                    onAccept={answerLanguage.setAccepted}
+                  />
+                  <div className="question-navigation">
+                    <button
+                      className="text-btn"
+                      disabled={busy || questionIndex === 0}
+                      onClick={() => setQuestionIndex((i) => i - 1)}
+                    >
+                      <ArrowLeft size={17} />
+                      {t("back")}
+                    </button>
+                    <div className="row">
+                      <button
+                        className="text-btn"
+                        disabled={busy}
+                        onClick={() => {
+                          setAnswer("");
+                          advance();
+                        }}
+                      >
+                        {t("skipQuestion")}
+                      </button>
+                      <button
+                        className="primary"
+                        disabled={
+                          busy ||
+                          !answerValues[questionIndex]?.trim() ||
+                          answerLanguage.blocked ||
+                          answerLanguage.checking
+                        }
+                        onClick={advance}
+                      >
+                        {t(
+                          questionIndex === questions.length - 1
+                            ? "reviewAnswers"
+                            : "nextQuestion",
+                        )}
+                        <ArrowRight size={17} />
+                      </button>
+                    </div>
                   </div>
-                ))}
-              </div>
-              <Listen
-                text={questions.join(". ")}
-                t={t}
-                lang={locale}
-                live={data.capabilities.speech}
-                onError={onError}
-              />
-              <label className="spaced-label">
-                {t("answers")}
-                <textarea
-                  rows={7}
-                  value={answers}
-                  onChange={(e) => setAnswers(e.target.value)}
-                  placeholder={t("answersPlaceholder")}
-                />
-              </label>
-              <AudioInput
-                t={t}
-                lang={locale}
-                enabled={data.capabilities.speech}
-                onError={onError}
-                onText={(s) => setAnswers((v) => v + " " + s)}
-              />
-              <div className="studio-actions">
-                <button
-                  className="primary"
-                  onClick={() => ask(true)}
-                  disabled={busy}
-                >
-                  <Sparkles size={17} />
-                  {t(busy ? "aiThinking" : "buildCard")}
-                </button>
-                <button
-                  className="text-btn"
-                  onClick={() => setStage(2)}
-                  disabled={busy}
-                >
-                  {t("next")}
-                  <ArrowRight size={16} />
-                </button>
-              </div>
-            </>
+                  <p className="question-save-note">
+                    {t("answersSaved")} · {questions.length - questionIndex - 1}{" "}
+                    {t("remaining")}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="question-complete-icon">
+                    <CheckCircle2 size={30} />
+                  </div>
+                  <h2>{t("questionsComplete")}</h2>
+                  <p className="muted">{t("aiReview")}</p>
+                  <div className="answer-review">
+                    {questions.map((q, i) => (
+                      <div key={i}>
+                        <div>
+                          <strong>{q}</strong>
+                          <p>{answerValues[i] || t("skipQuestion")}</p>
+                        </div>
+                        <button
+                          className="text-btn"
+                          onClick={() => setQuestionIndex(i)}
+                        >
+                          {t("edit")}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="studio-actions">
+                    <button
+                      className="primary"
+                      disabled={busy}
+                      onClick={() => ask(true, provider === "local")}
+                    >
+                      <Sparkles size={17} />
+                      {t(busy ? "aiThinking" : "makeBrief")}
+                    </button>
+                    <button
+                      className="text-btn"
+                      disabled={busy}
+                      onClick={() => setQuestionIndex(questions.length - 1)}
+                    >
+                      <ArrowLeft size={16} />
+                      {t("back")}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           )}
           {stage === 2 && (
             <>
@@ -373,6 +539,30 @@ export function Studio({
                   onChange={(e) => setField("title", e.target.value)}
                 />
               </label>
+              <CoverEditor
+                coverId={coverId}
+                fields={f}
+                data={data}
+                t={t}
+                onChange={(id) => {
+                  setCoverId(id);
+                  setPreviewApproved(false);
+                }}
+              />
+              {answerValues.some((v) => v?.trim()) && (
+                <details className="answer-notes">
+                  <summary>Ваши ответы на уточняющие вопросы</summary>
+                  {questions.map(
+                    (q, i) =>
+                      answerValues[i]?.trim() && (
+                        <div key={i}>
+                          <strong>{q}</strong>
+                          <p>{answerValues[i]}</p>
+                        </div>
+                      ),
+                  )}
+                </details>
+              )}
               <div className="group-tabs">
                 {groups.map((keys, i) => (
                   <button
@@ -403,6 +593,7 @@ export function Studio({
                     </span>
                     <textarea
                       rows={k === "context" || k === "need" ? 4 : 3}
+                      aria-label={t(k)}
                       value={f[k] || ""}
                       onChange={(e) => setField(k, e.target.value)}
                       placeholder={t("empty")}
@@ -418,6 +609,18 @@ export function Studio({
                   />
                 </div>
               ))}
+              {group === 1 && (
+                <AttachmentEditor
+                  ids={attachmentIds}
+                  data={data}
+                  locale={locale}
+                  onChange={(ids) => {
+                    setAttachmentIds(ids);
+                    setPreviewApproved(false);
+                  }}
+                  refresh={refresh}
+                />
+              )}
               <div className="studio-actions">
                 <button
                   className="primary"
@@ -476,6 +679,13 @@ export function Studio({
                 </div>
               </div>
               <div className="preview-paper">
+                {coverId && (
+                  <img
+                    className="brief-cover"
+                    src={"/covers/" + coverId + ".jpg"}
+                    alt={t("cover")}
+                  />
+                )}
                 <div className="row between">
                   <span className="eyebrow">
                     {c?.company || data.user?.name}
@@ -483,6 +693,7 @@ export function Studio({
                   <Badge score={score} t={t} />
                 </div>
                 <h2>{f.title}</h2>
+                <AttachmentList ids={attachmentIds} data={data} />
                 {fieldKeys
                   .filter((k) => k !== "title")
                   .map((k) => (
@@ -516,6 +727,15 @@ export function Studio({
                   />
                 </label>
               )}
+              <LanguageWarning
+                audit={languageAudit}
+                accepted={languageAccepted}
+                onAccept={(v) => {
+                  setLanguageAccepted(v);
+                  setPreviewApproved(false);
+                }}
+                penalty
+              />
               <label className="consent">
                 <input
                   type="checkbox"
@@ -530,7 +750,13 @@ export function Studio({
               <div className="studio-actions">
                 <button
                   className="primary"
-                  disabled={!previewApproved || !confirmed("need") || busy}
+                  disabled={
+                    !previewApproved ||
+                    !confirmed("need") ||
+                    busy ||
+                    finalLanguage.checking ||
+                    (!!languageAudit?.warning && !languageAccepted)
+                  }
                   onClick={() =>
                     action(async () => {
                       const cur = await save();
@@ -555,51 +781,64 @@ export function Studio({
             </>
           )}
         </section>
-        <aside className="score-panel">
-          <div className="score-panel-inner">
-            <span className="eyebrow">QUEST READINESS</span>
-            <div className="score-big" aria-live="polite" aria-atomic="true">
-              {score}
-              <span>/100</span>
+        {stage >= 2 && (
+          <aside className="score-panel">
+            <div className="score-panel-inner">
+              <span className="eyebrow">{t("readiness")}</span>
+              <div className="score-big" aria-live="polite" aria-atomic="true">
+                {score}
+                <span>/100</span>
+              </div>
+              <Badge score={score} t={t} />
+              <Meter score={score} />
+              <p>{t("scoreHint")}</p>
+              {languageAudit?.warning && (
+                <div className="language-score">
+                  <span>Подтверждённые разделы</span>
+                  <strong>{baseScore}</strong>
+                  <span>
+                    Язык материалов
+                    {languageAccepted ? "" : " · ожидает решения"}
+                  </span>
+                  <strong>{languageAccepted ? "−5" : "0"}</strong>
+                </div>
+              )}
+              <div className="score-criteria">
+                {data.criteria.map((cr) => {
+                  const yes = cr.fields.every(
+                    (k) => confirmed(k) && f[k]?.trim().length >= 3,
+                  );
+                  return (
+                    <div key={cr.id} className={yes ? "earned" : ""}>
+                      <span>
+                        {yes ? (
+                          <CheckCircle2 size={17} />
+                        ) : (
+                          <span className="empty-circle" />
+                        )}
+                        {t(
+                          cr.id === "context"
+                            ? "step1"
+                            : cr.id === "contact"
+                              ? "contact"
+                              : cr.id,
+                        )}
+                      </span>
+                      <strong>
+                        {yes ? cr.weight : 0}
+                        <small>/{cr.weight}</small>
+                      </strong>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="score-tip">
+                <ShieldCheck size={20} />
+                <span>{t(score < 40 ? "lowNote" : "noPayToWin")}</span>
+              </div>
             </div>
-            <Badge score={score} t={t} />
-            <Meter score={score} />
-            <p>{t("scoreHint")}</p>
-            <div className="score-criteria">
-              {data.criteria.map((cr) => {
-                const yes = cr.fields.every(
-                  (k) => confirmed(k) && f[k]?.trim().length >= 3,
-                );
-                return (
-                  <div key={cr.id} className={yes ? "earned" : ""}>
-                    <span>
-                      {yes ? (
-                        <CheckCircle2 size={17} />
-                      ) : (
-                        <span className="empty-circle" />
-                      )}
-                      {t(
-                        cr.id === "context"
-                          ? "step1"
-                          : cr.id === "contact"
-                            ? "contact"
-                            : cr.id,
-                      )}
-                    </span>
-                    <strong>
-                      {yes ? cr.weight : 0}
-                      <small>/{cr.weight}</small>
-                    </strong>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="score-tip">
-              <ShieldCheck size={20} />
-              <span>{t(score < 40 ? "lowNote" : "noPayToWin")}</span>
-            </div>
-          </div>
-        </aside>
+          </aside>
+        )}
       </div>
     </>
   );

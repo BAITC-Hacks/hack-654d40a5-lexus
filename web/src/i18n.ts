@@ -1,3 +1,4 @@
+import { additions } from "./v2-i18n";
 import type { Lang } from "./types";
 const ru = {
   clarified: "Ответы заказчика на уточнения",
@@ -839,4 +840,4 @@ export type T = (k: keyof Dict | string) => string;
 export const translator =
   (lang: Lang): T =>
   (k) =>
-    (({ ru, kk, en })[lang] as Record<string, string>)[k] || k;
+    additions[lang][k] || (({ ru, kk, en })[lang] as Record<string, string>)[k] || k;
