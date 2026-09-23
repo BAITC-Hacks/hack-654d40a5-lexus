@@ -1,0 +1,14 @@
+.git
+.env
+.env.*
+node_modules
+web/node_modules
+web/dist
+skills
+hackalem-manual
+my-promt-logs
+data
+output
+test-results
+renderer/node_modules
+renderer/bundle

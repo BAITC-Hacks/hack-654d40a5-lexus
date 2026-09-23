@@ -1,0 +1,42 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: sana
+      POSTGRES_USER: sana
+      POSTGRES_PASSWORD: sana_local_only
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sana -d sana"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "127.0.0.1:5434:5432"
+  app:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://sana:sana_local_only@db:5432/sana?sslmode=disable
+      PORT: "8080"
+      STATIC_DIR: /app/web/dist
+      MEDIA_DIR: /app/data/media
+      DEMO_MODE: "true"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - media-data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+volumes:
+  postgres-data:
+  media-data:

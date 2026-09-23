@@ -1,0 +1,14 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+node_modules/
+web/dist/
+data/
+output/
+test-results/
+playwright-report/
+my-promt-logs/
+server/sana
+renderer/bundle/
+*.tsbuildinfo
