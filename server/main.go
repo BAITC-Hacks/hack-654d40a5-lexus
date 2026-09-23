@@ -242,6 +242,8 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 			Fields   Fields `json:"fields"`
 			Category string `json:"category"`
 			Locale   string `json:"locale"`
+			Original string `json:"original"`
+			Answers  string `json:"answers"`
 		}
 		if err = decode(w, r, &in); err != nil {
 			break
@@ -264,7 +266,17 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 			if !strings.Contains("|Retail|Social|Education|Analytics|Ecology|Technology|", "|"+in.Category+"|") || in.Category == "" {
 				return bad("Unsupported category")
 			}
-			result = Challenge{ID: id(), OwnerID: u.ID, Company: u.Name, Category: in.Category, Locale: in.Locale, Fields: in.Fields, Approved: map[string]string{}, Revision: 1, Versions: []Version{}, CreatedAt: now(), Activity: []Activity{{"created", now(), in.Fields["need"]}}}
+			if len(in.Original) > 24000 || len(in.Answers) > 24000 {
+				return bad("Source text is too long")
+			}
+			original := in.Original
+			if strings.TrimSpace(original) == "" {
+				original = in.Fields["need"]
+			}
+			result = Challenge{ID: id(), OwnerID: u.ID, Company: u.Name, Category: in.Category, Locale: in.Locale, Fields: in.Fields, Approved: map[string]string{}, Revision: 1, Versions: []Version{}, CreatedAt: now(), Activity: []Activity{{"created", now(), original}}}
+			if strings.TrimSpace(in.Answers) != "" {
+				result.Activity = append(result.Activity, Activity{"clarified", now(), in.Answers})
+			}
 			s.Challenges = append(s.Challenges, result)
 			return nil
 		})
@@ -453,7 +465,7 @@ func (a *App) challengeAPI(w http.ResponseWriter, r *http.Request) error {
 			if in.Source == "ai" {
 				kind = "ai_applied"
 			}
-			if changed || len(in.Confirm) > 0 {
+			if changed || len(in.Confirm) > 0 || in.Source == "ai" {
 				detail := fmt.Sprintf("%d/100", c.Score)
 				if kind == "ai_applied" {
 					detail = string(serialize(c.Fields))

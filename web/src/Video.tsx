@@ -183,7 +183,6 @@ export function MediaStudio({
                       src={m.previewUrl.replace("preview.mp4", "final.vtt")}
                       srcLang={m.locale}
                       label={m.locale.toUpperCase()}
-                      default
                     />
                   </video>
                   <button
@@ -230,7 +229,6 @@ export function MediaStudio({
                       src={m.url.replace(".mp4", ".vtt")}
                       srcLang={m.locale}
                       label={m.locale.toUpperCase()}
-                      default
                     />
                   </video>
                   <a className="soft-btn" href={m.url} download>

@@ -93,6 +93,8 @@ export function Studio({
         fields,
         category,
         locale,
+        original: source,
+        answers,
       });
     }
     const updated = await api<Challenge>("/challenges/" + current.id, {

@@ -1,5 +1,6 @@
 import type { Lang } from "./types";
 const ru = {
+  clarified: "Ответы заказчика на уточнения",
   outdatedMedia: "Видео по предыдущей версии — сверяйтесь с актуальным ТЗ",
   aiChangeAdvice: "ИИ: что пересмотреть в плане",
   changeChecklist: "Что проверить после изменений",
@@ -282,6 +283,7 @@ const ru = {
 type Dict = typeof ru;
 const en: Dict = {
   ...ru,
+  clarified: "Customer clarification answers",
   outdatedMedia: "Video for an older version — check the current brief",
   aiChangeAdvice: "AI: what to reconsider",
   changeChecklist: "Review checklist",
@@ -558,6 +560,7 @@ const en: Dict = {
 };
 const kk: Dict = {
   ...en,
+  clarified: "Тапсырыс берушінің нақтылау жауаптары",
   outdatedMedia: "Алдыңғы нұсқаның бейнесі — өзекті ТЗ-ны тексеріңіз",
   aiChangeAdvice: "ЖИ: жоспардың нені өзгерту керек",
   changeChecklist: "Өзгерістен кейін нені тексеру керек",
