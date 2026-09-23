@@ -14,7 +14,8 @@ class Client:
         return value
 b=Client('b1');team=Client('ut1');other=Client('b2');anon=Client()
 fields={'title':'QA '+uuid.uuid4().hex[:8],'need':'У кофейни остаётся выпечка к вечеру. Нужно сократить списания.'}
-c=b.call('/challenges',{'fields':fields,'category':'Retail','locale':'ru'})
+c=b.call('/challenges',{'fields':fields,'category':'Retail','locale':'ru','original':'Хочу понять, что делать с вечерними остатками выпечки.'})
+assert c['activity'][0]['detail']=='Хочу понять, что делать с вечерними остатками выпечки.'
 anon.call('/challenges',{'fields':fields,'category':'Retail','locale':'ru'},401)
 other.call('/challenges/'+c['id'],{'revision':c['revision'],'fields':fields},403)
 ai=b.call('/ai',{'source':fields['need'],'locale':'kk','local':True});assert len(ai['questions'])>=3 and ai['provider']=='local'
@@ -30,6 +31,8 @@ b.call('/challenges/'+c['id'],{'revision':old,'fields':fields},409)
 public=next(x for x in anon.call('/bootstrap')['challenges'] if x['id']==c['id']);assert public['score']==0
 c=b.call('/challenges/'+c['id']+'/publish',{'revision':c['revision'],'previewApproved':True,'note':'Добавлены данные и измеримые критерии.'});assert c['versions'][0]['score']==0 and c['versions'][1]['score']==100
 notices=team.call('/bootstrap')['notifications'];assert any(n['challengeId']==c['id'] and n['kind']=='changed' for n in notices)
+advice=team.call('/changes',{'challengeId':c['id'],'version':2,'locale':'en'});assert len(advice['actions'])>=2 and 'data' in advice['fields']
+assert team.call('/changes',{'challengeId':c['id'],'version':2,'locale':'en'})==advice
 b.call('/proposals/'+p['id'],{'action':'accept'},409)
 team.call('/proposals/'+p['id'],{'action':'reconfirm'})
 b.call('/proposals/'+p['id'],{'action':'accept'})
@@ -45,4 +48,4 @@ t=next(t for t in b.call('/bootstrap')['teams'] if t['id']=='t1');assert t['xp']
 b.call('/subscription',{'plan':'pro'});assert b.call('/bootstrap')['user']['plan']=='pro'
 assert next(x for x in b.call('/bootstrap')['challenges'] if x['id']==c['id'])['score']==100
 team.call('/media',{'challengeId':c['id'],'version':2,'script':'Not allowed to generate customer media','locale':'en','duration':30,'voice':'none','approved':True,'previewApproved':True},403)
-print(json.dumps({'result':'PASS','checks':19,'challengeId':c['id'],'proposalId':p['id'],'finalScore':100,'teamXPDelta':200},ensure_ascii=False))
+print(json.dumps({'result':'PASS','checks':22,'challengeId':c['id'],'proposalId':p['id'],'finalScore':100,'teamXPDelta':200},ensure_ascii=False))
