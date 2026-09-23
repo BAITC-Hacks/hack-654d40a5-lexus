@@ -26,7 +26,7 @@ export function MediaStudio({
       .join("\n\n"),
   );
   const [locale, setLocale] = useState<Lang>(c.locale);
-  const [duration, setDuration] = useState(45);
+  const [duration, setDuration] = useState(30);
   const [voice, setVoice] = useState("none");
   const [approved, setApproved] = useState(false);
   const [preview, setPreview] = useState(false);

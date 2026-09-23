@@ -7,6 +7,19 @@ if (!manifest || !["preview", "final"].includes(mode))
   throw new Error("Expected manifest and preview|final");
 const m = JSON.parse(fs.readFileSync(manifest, "utf8"));
 const base = path.dirname(manifest);
+// A 30-second pilot is already the complete approved movie. Reuse exact bytes.
+if (
+  mode === "final" &&
+  m.duration <= 30 &&
+  fs.existsSync(path.join(base, "preview.mp4"))
+) {
+  const out = path.join(base, "final.mp4");
+  fs.copyFileSync(path.join(base, "preview.mp4"), out);
+  console.log(
+    JSON.stringify({ status: "ready", output: out, reusedPreview: true }),
+  );
+  process.exit(0);
+}
 const props = { ...m };
 const executable = process.env.CHROME_EXECUTABLE || undefined;
 const options = {

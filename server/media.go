@@ -298,28 +298,7 @@ func (a *App) renderJob(m Media, c Challenge) error {
 			audioDuration = dur
 		}
 		labels := map[string][]string{"ru": {"Потребность", "Пользователи", "Результат", "Критерии", "Детали", "Следующий шаг"}, "kk": {"Қажеттілік", "Пайдаланушылар", "Нәтиже", "Өлшемдер", "Деректер", "Келесі қадам"}, "en": {"The need", "People", "The result", "Success", "Details", "Next step"}}[m.Locale]
-		paras := splitParagraphs(m.Script)
-		total := 0
-		for _, p := range paras {
-			total += utf8.RuneCountInString(p)
-		}
-		scenes := []Scene{}
-		caps := []Caption{}
-		frame := 0
-		for i, p := range paras {
-			frames := int(audioDuration * 30 * float64(utf8.RuneCountInString(p)) / float64(total))
-			if i == len(paras)-1 {
-				frames = m.Duration*30 - frame
-			}
-			scenes = append(scenes, Scene{p, labels[i], frame, frames})
-			chunks := captionChunks(p)
-			for j, text := range chunks {
-				from := frame + frames*j/len(chunks)
-				to := frame + frames*(j+1)/len(chunks)
-				caps = append(caps, Caption{from, to, text})
-			}
-			frame += frames
-		}
+		scenes, caps := mediaTimeline(splitParagraphs(m.Script), labels, m.Duration, audioDuration)
 		v := c.Versions[m.Version-1]
 		body := map[string]any{"title": v.Fields["title"], "company": c.Company, "version": m.Version, "locale": m.Locale, "duration": m.Duration, "scenes": scenes, "captions": caps}
 		if e := os.WriteFile(manifest, serialize(body), 0600); e != nil {
@@ -327,7 +306,7 @@ func (a *App) renderJob(m Media, c Challenge) error {
 		}
 		vtt := "WEBVTT\n\n"
 		for _, cap := range caps {
-			vtt += stamp(cap.From) + " --> " + stamp(cap.To) + "\n" + strings.ReplaceAll(strings.ReplaceAll(cap.Text, "<", "&lt;"), "&", "&amp;") + "\n\n"
+			vtt += stamp(cap.From) + " --> " + stamp(cap.To) + "\n" + strings.ReplaceAll(strings.ReplaceAll(cap.Text, "&", "&amp;"), "<", "&lt;") + "\n\n"
 		}
 		if e := os.WriteFile(filepath.Join(dir, "final.vtt"), []byte(vtt), 0640); e != nil {
 			return e
@@ -371,4 +350,36 @@ func captionChunks(text string) []string {
 func stamp(frame int) string {
 	ms := frame * 1000 / 30
 	return fmt.Sprintf("%02d:%02d:%02d.%03d", ms/3600000, (ms/60000)%60, (ms/1000)%60, ms%1000)
+}
+
+// Narration captions stop with the voice; the final visual may remain for reading.
+func mediaTimeline(paras, labels []string, seconds int, audioDuration float64) ([]Scene, []Caption) {
+	total := 0
+	for _, p := range paras {
+		total += utf8.RuneCountInString(p)
+	}
+	scenes := []Scene{}
+	caps := []Caption{}
+	frame := 0
+	for i, p := range paras {
+		spokenFrames := int(audioDuration * 30 * float64(utf8.RuneCountInString(p)) / float64(total))
+		if i == len(paras)-1 {
+			spokenFrames = int(audioDuration*30) - frame
+		}
+		frames := spokenFrames
+		if i == len(paras)-1 {
+			frames = seconds*30 - frame
+		}
+		scenes = append(scenes, Scene{p, labels[i], frame, frames})
+		chunks := captionChunks(p)
+		for j, text := range chunks {
+			from := frame + spokenFrames*j/len(chunks)
+			to := frame + spokenFrames*(j+1)/len(chunks)
+			if to > from {
+				caps = append(caps, Caption{from, to, text})
+			}
+		}
+		frame += frames
+	}
+	return scenes, caps
 }

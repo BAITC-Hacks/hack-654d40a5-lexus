@@ -109,3 +109,22 @@ func TestCaptionChunking(t *testing.T) {
 		t.Fatal("bad timestamp")
 	}
 }
+
+func TestVideoCaptionsFollowNarrationNotSilentTail(t *testing.T) {
+	paragraphs := []string{"A clear business need with verified facts.", "A practical result that the team will deliver and test."}
+	scenes, captions := mediaTimeline(paragraphs, []string{"Need", "Result"}, 45, 22.1)
+	if len(scenes) != 2 || scenes[0].From != 0 || scenes[1].From != scenes[0].Duration {
+		t.Fatal("scene timeline has gaps")
+	}
+	if scenes[1].From+scenes[1].Duration != 45*30 {
+		t.Fatal("video duration not preserved")
+	}
+	if len(captions) == 0 || captions[len(captions)-1].To > int(22.1*30) {
+		t.Fatal("captions continued after narration")
+	}
+	for _, c := range captions {
+		if c.To <= c.From {
+			t.Fatal("empty caption interval")
+		}
+	}
+}

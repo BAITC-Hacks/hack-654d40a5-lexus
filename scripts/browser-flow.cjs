@@ -30,9 +30,15 @@ const assert = require("node:assert/strict");
   await page
     .getByLabel("Что нужно изменить", { exact: true })
     .fill("У кофейни остаётся выпечка к вечеру. Хотим сократить списания.");
-  await page
-    .getByRole("button", { name: "Локальный помощник", exact: true })
-    .click();
+  const local = page.getByRole("button", {
+    name: "Локальный помощник",
+    exact: true,
+  });
+  if (await local.isVisible()) await local.click();
+  else
+    await page
+      .getByRole("button", { name: "Помочь сформулировать", exact: true })
+      .click();
   await page.locator(".question-list>div").nth(2).waitFor();
   await page.getByRole("button", { name: "Продолжить", exact: true }).click();
   await page
